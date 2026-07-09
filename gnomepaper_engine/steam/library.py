@@ -113,6 +113,15 @@ def _title_from_meta(folder: Path, meta: dict, fallback_id: str) -> str:
     return fallback_id
 
 
+def _tags_from_meta(meta: dict) -> tuple[str, ...]:
+    raw = meta.get("tags")
+    if isinstance(raw, list):
+        return tuple(str(t) for t in raw if t)
+    if isinstance(raw, str) and raw.strip():
+        return (raw.strip(),)
+    return ()
+
+
 def _item_from_folder(folder: Path, *, workshop: bool) -> WallpaperItem | None:
     if not folder.is_dir():
         return None
@@ -125,6 +134,7 @@ def _item_from_folder(folder: Path, *, workshop: bool) -> WallpaperItem | None:
         wallpaper_type=_detect_type(folder, meta),
         preview_path=_find_preview(folder, meta),
         workshop=workshop,
+        tags=_tags_from_meta(meta),
         meta=meta,
     )
 

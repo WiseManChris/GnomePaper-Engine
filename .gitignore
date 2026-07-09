@@ -21,3 +21,17 @@ venv/
 # App local state (keep defaults in-repo if added later)
 *.log
 .gnomepaper_engine_debug
+
+# Vendor builds
+third_party/
+
+# Packaging
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+dist/
+build/
+

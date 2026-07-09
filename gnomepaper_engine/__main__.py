@@ -8,7 +8,10 @@ import sys
 def main(argv: list[str] | None = None) -> int:
     from gnomepaper_engine.app import run
 
-    return run(argv if argv is not None else sys.argv[1:])
+    # Gio.Application expects full argv including program name
+    if argv is None:
+        return run(sys.argv)
+    return run([sys.argv[0], *argv] if argv and not argv[0].endswith(".py") else argv)
 
 
 if __name__ == "__main__":

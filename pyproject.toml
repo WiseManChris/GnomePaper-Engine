@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gnomepaper-engine"
-version = "0.1.0"
-description = "Wallpaper Engine for GNOME — browse and run Steam Wallpaper Engine wallpapers"
+version = "1.0.0"
+description = "Wallpaper Engine for GNOME — Steam workshop library, video & scene wallpapers"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "GnomePaper Engine contributors" }]
-keywords = ["gnome", "wallpaper", "steam", "wallpaper-engine"]
+keywords = ["gnome", "wallpaper", "steam", "wallpaper-engine", "linux"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: X11 Applications :: GTK",
   "Intended Audience :: End Users/Desktop",
   "License :: OSI Approved :: MIT License",
@@ -20,9 +20,14 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Desktop Environment :: Gnome",
 ]
-# System packages (Fedora/Nobara): python3-gobject, gtk4, libadwaita
-# Optional runtime tools: mpv (video wallpapers)
+# System packages (Fedora/Nobara): python3-gobject gtk4 libadwaita
+# Optional: mpv, xprop, wmctrl, xdotool; SteamCMD for workshop direct download
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/christianl/GnomePaper-Engine"
+Repository = "https://github.com/christianl/GnomePaper-Engine"
+Issues = "https://github.com/christianl/GnomePaper-Engine/issues"
 
 [project.scripts]
 gnomepaper-engine = "gnomepaper_engine.__main__:main"

@@ -27,10 +27,30 @@ class AppConfig:
     # Empty = auto-discover Steam library folders
     steam_library_paths: list[str] = field(default_factory=list)
     last_wallpaper_id: str | None = None
-    mute_audio: bool = True
+    # Audio on by default (Windows WE plays wallpaper audio)
+    mute_audio: bool = False
+    # 0–100, used when not muted
+    audio_volume: int = 70
+    # Scene mouse / eye-follow / parallax (linux-wallpaperengine)
+    mouse_interaction: bool = True
     target_fps: int = 30
     # "all" or a connector name later (multi-monitor)
     apply_to: str = "all"
+    # Steam account for direct workshop downloads via SteamCMD (password never stored)
+    steam_username: str = ""
+    # True after a successful SteamCMD login (credentials cached by SteamCMD)
+    steam_linked: bool = False
+    # Public profile vanity / display cache
+    steam_persona_name: str = ""
+    steam_id64: str = ""
+    steam_avatar_path: str = ""  # local cached avatar file
+    # Prefer SteamCMD download over Subscribe-in-browser when credentials available
+    prefer_steamcmd_download: bool = True
+    # Desktop session (v1.0)
+    close_to_background: bool = True
+    start_minimized: bool = False
+    launch_at_login: bool = False
+    restore_last_on_launch: bool = True
 
     @classmethod
     def config_dir(cls) -> Path:

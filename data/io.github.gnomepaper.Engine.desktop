@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=GnomePaper Engine
+Comment=Run Steam Wallpaper Engine wallpapers on GNOME
+Exec=gnomepaper-engine
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Type=Application
+Categories=Utility;GTK;GNOME;
+Keywords=wallpaper;steam;desktop;background;
+StartupNotify=true
+DBusActivatable=false

@@ -25,9 +25,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/christianl/GnomePaper-Engine"
-Repository = "https://github.com/christianl/GnomePaper-Engine"
-Issues = "https://github.com/christianl/GnomePaper-Engine/issues"
+Homepage = "https://github.com/WiseManChris/GnomePaper-Engine"
+Repository = "https://github.com/WiseManChris/GnomePaper-Engine"
+Issues = "https://github.com/WiseManChris/GnomePaper-Engine/issues"
 
 [project.scripts]
 gnomepaper-engine = "gnomepaper_engine.__main__:main"

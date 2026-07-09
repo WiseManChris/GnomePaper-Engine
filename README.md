@@ -44,7 +44,7 @@ sudo dnf install python3-gobject gtk4 libadwaita gtk3 \
 ## Install & run
 
 ```bash
-git clone https://github.com/christianl/GnomePaper-Engine.git
+git clone https://github.com/WiseManChris/GnomePaper-Engine.git
 cd GnomePaper-Engine
 pip install --user -e .
 gnomepaper-engine

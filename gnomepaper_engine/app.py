@@ -342,7 +342,7 @@ class GnomePaperApplication(Adw.Application):
                 "with a native Adwaita experience. Requires owning Wallpaper Engine on Steam."
             ),
             license_type=Gtk.License.MIT_X11,
-            website="https://github.com/christianl/GnomePaper-Engine",
+            website="https://github.com/WiseManChris/GnomePaper-Engine",
         )
         if self.window is not None:
             about.present(self.window)

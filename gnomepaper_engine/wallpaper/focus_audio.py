@@ -47,8 +47,8 @@ class FocusAudioGuard:
         self._enabled = True
         self._lock = threading.Lock()
         self._last_obscured: bool | None = None
-        # After a user volume change, force-apply volume for a short window
-        # even if we also re-evaluate mute (so the slider always "sticks").
+        self._last_pushed: tuple[int, bool] | None = None  # (vol, muted)
+        # After a user volume change, force-apply so the slider always sticks
         self._force_until = 0.0
 
     def configure(
@@ -108,11 +108,19 @@ class FocusAudioGuard:
         user_muted: bool,
         enabled: bool,
     ) -> None:
+        force = time.monotonic() < self._force_until
+
         if user_muted or vol <= 0:
-            set_wallpaper_volume(vol if vol > 0 else 0, muted=True, pids=pids)
+            want = (vol if vol > 0 else 0, True)
+            if force or want != self._last_pushed:
+                set_wallpaper_volume(want[0], muted=True, pids=pids)
+                self._last_pushed = want
             return
         if not enabled:
-            set_wallpaper_volume(vol, muted=False, pids=pids)
+            want = (vol, False)
+            if force or want != self._last_pushed:
+                set_wallpaper_volume(vol, muted=False, pids=pids)
+                self._last_pushed = want
             return
 
         obscured = _wallpaper_obscured(pids)
@@ -120,8 +128,11 @@ class FocusAudioGuard:
             log.info("Wallpaper audio obscured=%s (focused=%s)", obscured, _describe_focus())
             self._last_obscured = obscured
 
-        # Always write the volume level; mute only when something is in front
-        set_wallpaper_volume(vol, muted=obscured, pids=pids)
+        # Write volume level; mute only when something is in front
+        want = (vol, bool(obscured))
+        if force or want != self._last_pushed:
+            set_wallpaper_volume(vol, muted=obscured, pids=pids)
+            self._last_pushed = want
 
 
 def _wallpaper_obscured(wallpaper_pids: list[int]) -> bool:

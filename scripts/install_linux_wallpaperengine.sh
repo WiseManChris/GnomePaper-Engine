@@ -339,11 +339,11 @@ verify_and_fix() {
     fail "DBus"; missing=1
   fi
 
-  if pkg-config --exists mpv 2>/dev/null \
-    || find_header /usr/include/mpv/client.h; then
-    ok "MPV"
+  if have_mpv; then
+    ok "MPV (libmpv) — headers + library"
   else
-    fail "MPV"; missing=1
+    fail "MPV (libmpv) headers or library"
+    missing=1
   fi
 
   if pkg-config --exists libpulse 2>/dev/null \
@@ -365,32 +365,60 @@ verify_and_fix() {
   return "$missing"
 }
 
+have_glut() {
+  find_header /usr/include/GL/glut.h /usr/include/GL/freeglut.h \
+    && find_lib libglut
+}
+
+have_mpv() {
+  # FindMPV.cmake needs BOTH include dir (mpv/client.h) and libmpv
+  find_header /usr/include/mpv/client.h /usr/local/include/mpv/client.h \
+    && find_lib libmpv
+}
+
+# Download RPMs and force-install when dnf GPG/transaction fails (Nobara).
+dnf_rpm_force() {
+  local tmp p
+  tmp="$(mktemp -d)"
+  (
+    cd "$tmp" || exit 0
+    for p in "$@"; do
+      run_root dnf download --nogpgcheck "$p" 2>/dev/null \
+        || dnf download --nogpgcheck "$p" 2>/dev/null \
+        || true
+    done
+    shopt -s nullglob
+    local rpms=( ./*.rpm )
+    if [[ ${#rpms[@]} -gt 0 ]]; then
+      run_root rpm -Uvh --force --nodeps "${rpms[@]}" || true
+    fi
+  )
+  rm -rf "$tmp"
+}
+
 # Force-install anything still missing after the big install.
 repair_missing_deps() {
   step "Repairing any missing packages"
   case "${PM}" in
     dnf)
-      # Always force freeglut first — this is the #1 user failure
-      if ! find_header /usr/include/GL/glut.h || ! find_lib libglut; then
+      # GLUT
+      if ! have_glut; then
         bold "    Installing freeglut + freeglut-devel (required for GLUT)…"
         dnf_install_packages freeglut freeglut-devel || true
-        # Absolute last resort: download RPM and rpm -Uvh --nodeps
-        if ! find_header /usr/include/GL/glut.h; then
-          warn "Trying direct RPM install for freeglut-devel…"
-          local tmp
-          tmp="$(mktemp -d)"
-          (
-            cd "$tmp"
-            run_root dnf download --nogpgcheck freeglut freeglut-devel 2>/dev/null \
-              || dnf download --nogpgcheck freeglut freeglut-devel 2>/dev/null \
-              || true
-            shopt -s nullglob
-            local rpms=( ./*.rpm )
-            if [[ ${#rpms[@]} -gt 0 ]]; then
-              run_root rpm -Uvh --force --nodeps "${rpms[@]}" || true
-            fi
-          )
-          rm -rf "$tmp"
+        if ! have_glut; then
+          warn "Trying direct RPM install for freeglut…"
+          dnf_rpm_force freeglut freeglut-devel
+        fi
+      fi
+      # MPV / libmpv — second most common CMake failure on Nobara
+      if ! have_mpv; then
+        bold "    Installing mpv + mpv-devel (required for libmpv)…"
+        dnf_install_packages mpv mpv-devel || true
+        # Some spins ship libmpv under alternate names
+        dnf_install_packages libmpv-devel 2>/dev/null || true
+        if ! have_mpv; then
+          warn "Trying direct RPM install for mpv-devel…"
+          dnf_rpm_force mpv mpv-devel
         fi
       fi
       command -v cmake >/dev/null || dnf_install_packages cmake || true
@@ -401,38 +429,47 @@ repair_missing_deps() {
         || dnf_install_packages SDL2-devel || true
       find_header /usr/include/lz4.h || dnf_install_packages lz4-devel || true
       find_header /usr/include/zlib.h || dnf_install_packages zlib-devel || true
-      find_header /usr/include/mpv/client.h || dnf_install_packages mpv-devel || true
       pkg-config --exists dbus-1 2>/dev/null || dnf_install_packages dbus-devel || true
       pkg-config --exists libpulse 2>/dev/null || dnf_install_packages pulseaudio-libs-devel || true
       find_header /usr/include/ft2build.h /usr/include/freetype2/ft2build.h \
         || dnf_install_packages freetype-devel || true
+      # Ensure pkg-config can see /usr/lib64/pkgconfig (FindMPV uses it)
+      dnf_install_packages pkgconf-pkg-config pkgconfig 2>/dev/null || true
       ;;
     apt)
-      if ! find_header /usr/include/GL/glut.h; then
+      if ! have_glut; then
         apt_install_packages freeglut3-dev || true
+      fi
+      if ! have_mpv; then
+        bold "    Installing libmpv-dev (required for MPV)…"
+        apt_install_packages libmpv-dev mpv || true
       fi
       command -v cmake >/dev/null || apt_install_packages cmake build-essential || true
       find_header /usr/include/GL/glew.h || apt_install_packages libglew-dev || true
       pkg-config --exists sdl2 2>/dev/null || apt_install_packages libsdl2-dev || true
-      find_header /usr/include/mpv/client.h || apt_install_packages libmpv-dev || true
       pkg-config --exists dbus-1 2>/dev/null || apt_install_packages libdbus-1-dev || true
       ;;
     pacman)
-      if ! find_header /usr/include/GL/glut.h; then
+      if ! have_glut; then
         pacman_install_packages freeglut || true
+      fi
+      if ! have_mpv; then
+        pacman_install_packages mpv || true
       fi
       ;;
     zypper)
-      if ! find_header /usr/include/GL/glut.h; then
+      if ! have_glut; then
         zypper_install_packages freeglut-devel || true
+      fi
+      if ! have_mpv; then
+        zypper_install_packages mpv-devel || true
       fi
       ;;
   esac
 }
 
 require_glut_or_die() {
-  if find_header /usr/include/GL/glut.h /usr/include/GL/freeglut.h \
-    && find_lib libglut; then
+  if have_glut; then
     ok "GLUT ready for CMake"
     return 0
   fi
@@ -461,6 +498,36 @@ require_glut_or_die() {
   exit 1
 }
 
+require_mpv_or_die() {
+  if have_mpv; then
+    ok "MPV ready for CMake"
+    return 0
+  fi
+  echo
+  fail "MPV (libmpv) is still missing after package install."
+  echo
+  echo "  CMake needs mpv/client.h and libmpv (package: mpv-devel / libmpv-dev)."
+  echo "  Try this manually, then re-run the installer:"
+  echo
+  case "${PM}" in
+    dnf)
+      echo "    sudo dnf install -y --nogpgcheck mpv mpv-devel"
+      echo "    ls /usr/include/mpv/client.h /usr/lib64/libmpv.so"
+      ;;
+    apt)
+      echo "    sudo apt-get install -y libmpv-dev mpv"
+      ;;
+    pacman)
+      echo "    sudo pacman -S mpv"
+      ;;
+    zypper)
+      echo "    sudo zypper install mpv-devel"
+      ;;
+  esac
+  echo
+  exit 1
+}
+
 # ── Source + build ──────────────────────────────────────────────────────────
 prepare_source() {
   step "Fetching linux-wallpaperengine source"
@@ -477,15 +544,30 @@ prepare_source() {
   ok "Source: ${SRC}"
 }
 
+# Resolve first existing path from a list
+first_existing() {
+  local p
+  for p in "$@"; do
+    if [[ -e "$p" ]]; then
+      printf '%s' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
 configure_and_build() {
   step "Configuring CMake (clean build tree)"
-  # Always wipe build dir so stale GLUT-NOTFOUND caches cannot stick
+  # Always wipe build dir so stale NOTFOUND caches cannot stick
   rm -rf "${BUILD_DIR}"
   mkdir -p "${BUILD_DIR}"
 
-  # Help CMake find freeglut on multi-arch layouts
+  # Help FindMPV / FindGLUT on Fedora & multi-arch layouts
   export CMAKE_PREFIX_PATH="/usr:/usr/local${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
-  # Prefer lib64 on Fedora/Nobara
+  export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  export LIBRARY_PATH="/usr/lib64:/usr/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+  export CPATH="/usr/include${CPATH:+:$CPATH}"
+
   local cmake_extra=()
   if [[ -d /usr/lib64 ]]; then
     cmake_extra+=(
@@ -494,21 +576,44 @@ configure_and_build() {
     )
   fi
 
-  # Point GLUT explicitly when freeglut is installed in the usual place
-  if [[ -f /usr/include/GL/glut.h ]]; then
+  # ── GLUT (explicit) ─────────────────────────────────────────────────────
+  if [[ -f /usr/include/GL/glut.h || -f /usr/include/GL/freeglut.h ]]; then
     cmake_extra+=("-DGLUT_INCLUDE_DIR=/usr/include")
   fi
-  for candidate in \
+  local glut_lib
+  if glut_lib="$(first_existing \
       /usr/lib64/libglut.so /usr/lib64/libglut.so.3 \
       /usr/lib/libglut.so /usr/lib/libglut.so.3 \
       /usr/lib/x86_64-linux-gnu/libglut.so \
-      /usr/lib/x86_64-linux-gnu/libglut.so.3; do
-    if [[ -e "$candidate" ]]; then
-      cmake_extra+=("-DGLUT_glut_LIBRARY=${candidate}")
-      ok "Hinting CMake: GLUT library = ${candidate}"
-      break
-    fi
-  done
+      /usr/lib/x86_64-linux-gnu/libglut.so.3)"; then
+    cmake_extra+=("-DGLUT_glut_LIBRARY=${glut_lib}")
+    ok "Hinting CMake: GLUT = ${glut_lib}"
+  fi
+
+  # ── MPV (explicit — FindMPV is picky without pkg-config hints) ──────────
+  local mpv_inc mpv_lib
+  if mpv_inc="$(first_existing /usr/include /usr/local/include)" \
+    && [[ -f "${mpv_inc}/mpv/client.h" ]]; then
+    cmake_extra+=("-DMPV_INCLUDE_DIR=${mpv_inc}")
+  elif [[ -f /usr/include/mpv/client.h ]]; then
+    cmake_extra+=("-DMPV_INCLUDE_DIR=/usr/include")
+  fi
+  if mpv_lib="$(first_existing \
+      /usr/lib64/libmpv.so /usr/lib64/libmpv.so.2 \
+      /usr/lib/libmpv.so /usr/lib/libmpv.so.2 \
+      /usr/lib/x86_64-linux-gnu/libmpv.so \
+      /usr/lib/x86_64-linux-gnu/libmpv.so.2)"; then
+    cmake_extra+=("-DMPV_LIBRARY=${mpv_lib}")
+    cmake_extra+=("-DMPV_LIBRARY_mpv=${mpv_lib}")
+    ok "Hinting CMake: MPV = ${mpv_lib}"
+  fi
+
+  # If pkg-config knows mpv, surface that too
+  if pkg-config --exists mpv 2>/dev/null; then
+    ok "pkg-config mpv: $(pkg-config --modversion mpv 2>/dev/null || echo present)"
+  else
+    warn "pkg-config has no 'mpv' module — using explicit MPV_* cmake vars"
+  fi
 
   echo "    cmake ${cmake_extra[*]:-}"
   if ! cmake -S "${SRC}" -B "${BUILD_DIR}" \
@@ -518,7 +623,6 @@ configure_and_build() {
     echo
     echo "  Last 40 lines of CMakeError.log (if any):"
     tail -40 "${BUILD_DIR}/CMakeFiles/CMakeError.log" 2>/dev/null || true
-    tail -40 "${BUILD_DIR}/CMakeFiles/CMakeOutput.log" 2>/dev/null || true
     die "Fix the missing dependency above, then re-run: $0"
   fi
   ok "CMake configured"
@@ -622,6 +726,7 @@ main() {
     verify_and_fix || true
   fi
   require_glut_or_die
+  require_mpv_or_die
 
   # 4) Build
   prepare_source

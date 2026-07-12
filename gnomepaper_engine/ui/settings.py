@@ -1,4 +1,4 @@
-"""Application Settings dialog (background, autostart, downloads)."""
+"""Application Settings dialog (session, appearance, downloads)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,18 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gtk  # noqa: E402
 
+from gnomepaper_engine import __version__  # noqa: E402
 from gnomepaper_engine.autostart import is_autostart_enabled  # noqa: E402
 from gnomepaper_engine.config import AppConfig  # noqa: E402
+from gnomepaper_engine.ui.theme import (  # noqa: E402
+    ACCENT_OPTIONS,
+    THEME_OPTIONS,
+    apply_theme,
+)
 
 
 class SettingsDialog(Adw.PreferencesDialog):
-    """Central settings for v1.0 desktop integration."""
+    """Central settings: session, appearance, downloads."""
 
     def __init__(
         self,
@@ -32,6 +38,50 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _build(self) -> None:
         page = Adw.PreferencesPage(title="General", icon_name="preferences-system-symbolic")
         self.add(page)
+
+        # Appearance
+        appearance = Adw.PreferencesGroup(
+            title="Appearance",
+            description="Theme and accent color for GnomePaper only.",
+        )
+        page.add(appearance)
+
+        theme_row = Adw.ComboRow(title="Theme", subtitle="Light, dark, or pitch black OLED")
+        theme_model = Gtk.StringList.new([label for _key, label in THEME_OPTIONS])
+        theme_row.set_model(theme_model)
+        theme_keys = [key for key, _label in THEME_OPTIONS]
+        try:
+            theme_row.set_selected(theme_keys.index(self._config.ui_theme))
+        except ValueError:
+            theme_row.set_selected(0)
+        theme_row.connect("notify::selected", self._on_theme)
+        appearance.add(theme_row)
+        self._theme_keys = theme_keys
+
+        accent_row = Adw.ActionRow(
+            title="Accent color",
+            subtitle="Highlights, switches, and primary buttons",
+        )
+        accent_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        accent_box.set_valign(Gtk.Align.CENTER)
+        self._accent_buttons: dict[str, Gtk.CheckButton] = {}
+        group_leader: Gtk.CheckButton | None = None
+        for key, label, hex_color in ACCENT_OPTIONS:
+            btn = Gtk.CheckButton(label=label)
+            btn.add_css_class("accent-choice")
+            # color swatch via tooltip
+            btn.set_tooltip_text(f"{label} ({hex_color})")
+            if group_leader is None:
+                group_leader = btn
+            else:
+                btn.set_group(group_leader)
+            if key == self._config.accent_color:
+                btn.set_active(True)
+            btn.connect("toggled", self._on_accent_toggled, key)
+            self._accent_buttons[key] = btn
+            accent_box.append(btn)
+        accent_row.add_suffix(accent_box)
+        appearance.add(accent_row)
 
         # Session
         session = Adw.PreferencesGroup(
@@ -98,7 +148,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         about = Adw.PreferencesGroup(title="About")
         page.add(about)
         note = Adw.ActionRow(
-            title="GnomePaper Engine 1.1.1",
+            title=f"GnomePaper Engine {__version__}",
             subtitle="Any GNOME desktop · by WiseManChris · requires owning WE on Steam",
         )
         about.add(note)
@@ -107,6 +157,21 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._config.save()
         if self._on_changed is not None:
             self._on_changed()
+
+    def _on_theme(self, row: Adw.ComboRow, *_a: object) -> None:
+        idx = row.get_selected()
+        if idx < 0 or idx >= len(self._theme_keys):
+            return
+        self._config.ui_theme = self._theme_keys[idx]
+        apply_theme(theme=self._config.ui_theme, accent=self._config.accent_color)
+        self._persist()
+
+    def _on_accent_toggled(self, button: Gtk.CheckButton, key: str) -> None:
+        if not button.get_active():
+            return
+        self._config.accent_color = key
+        apply_theme(theme=self._config.ui_theme, accent=self._config.accent_color)
+        self._persist()
 
     def _on_bg(self, row: Adw.SwitchRow, *_a: object) -> None:
         self._config.close_to_background = row.get_active()

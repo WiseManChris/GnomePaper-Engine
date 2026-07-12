@@ -52,6 +52,7 @@ class MainWindow(Adw.ApplicationWindow):
         on_refresh: Callable[[], None],
         on_apply: Callable[[WallpaperItem], None],
         on_stop: Callable[[], None],
+        on_remove: Callable[[WallpaperItem], None] | None = None,
         mute_audio: bool = False,
         audio_volume: int = 70,
         mouse_interaction: bool = True,
@@ -81,6 +82,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._on_refresh = on_refresh
         self._on_apply = on_apply
         self._on_stop = on_stop
+        self._on_remove = on_remove
         self._on_mute_changed = on_mute_changed
         self._on_volume_changed = on_volume_changed
         self._on_mouse_changed = on_mouse_changed
@@ -437,6 +439,17 @@ class MainWindow(Adw.ApplicationWindow):
         primary.add_css_class("pill")
         primary.set_sensitive(False)
         action_box.append(primary)
+
+        if installed_mode:
+            remove_btn = Gtk.Button(label="Remove")
+            remove_btn.add_css_class("destructive-action")
+            remove_btn.add_css_class("pill")
+            remove_btn.set_sensitive(False)
+            remove_btn.set_tooltip_text("Delete this wallpaper from your library (local files)")
+            remove_btn.connect("clicked", self._on_remove_clicked)
+            action_box.append(remove_btn)
+            self._remove_btn = remove_btn
+
         right.append(action_box)
 
         if installed_mode:
@@ -675,6 +688,8 @@ class MainWindow(Adw.ApplicationWindow):
             )
         self._selected = None
         self._apply_btn.set_sensitive(False)
+        if hasattr(self, "_remove_btn"):
+            self._remove_btn.set_sensitive(False)
         self._set_detail_placeholder()
 
     def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
@@ -692,6 +707,8 @@ class MainWindow(Adw.ApplicationWindow):
         if not selected:
             self._selected = None
             self._apply_btn.set_sensitive(False)
+            if hasattr(self, "_remove_btn"):
+                self._remove_btn.set_sensitive(False)
             self._set_detail_placeholder()
             return
         child = selected[0]
@@ -706,6 +723,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _show_detail(self, item: WallpaperItem) -> None:
         self._selected = item
         self._apply_btn.set_sensitive(True)
+        if hasattr(self, "_remove_btn"):
+            self._remove_btn.set_sensitive(True)
         self._detail_title.set_label(item.title)
         self._detail_meta.set_label(f"{item.type_label}  ·  Workshop ID {item.id}")
         self._detail_tags.set_label(" · ".join(item.tags) if item.tags else str(item.path))
@@ -721,6 +740,33 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_apply_clicked(self, *_args: GObject.Object) -> None:
         if self._selected is not None:
             self._on_apply(self._selected)
+
+    def _on_remove_clicked(self, *_args: GObject.Object) -> None:
+        item = self._selected
+        if item is None:
+            return
+        dialog = Adw.AlertDialog(
+            heading="Remove wallpaper?",
+            body=(
+                f"Delete “{item.title}” from your library?\n\n"
+                "This removes the local workshop files from disk and cannot be undone. "
+                "Steam may re-download it later if you are still subscribed."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def _on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "remove":
+                return
+            if self._on_remove is not None:
+                self._on_remove(item)
+
+        dialog.connect("response", _on_response)
+        dialog.present(self)
 
     # ── workshop ──────────────────────────────────────────────────
 

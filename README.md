@@ -2,7 +2,7 @@
 
 ### Live wallpapers on GNOME. Your Steam library. Your desktop. Finally.
 
-**Version 1.1.1** · by [WiseManChris](https://github.com/WiseManChris)
+**Version 1.1.2** · by [WiseManChris](https://github.com/WiseManChris)
 
 If you have ever stared at a beautiful Wallpaper Engine scene on Windows and thought *“why can’t GNOME feel like this?”* — this is the project for you.
 
@@ -12,7 +12,7 @@ GnomePaper Engine brings your **Steam Wallpaper Engine** library to **any GNOME-
 > No cracks. No ownership bypass. If you bought it, you’re welcome here.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version 1.1.1](https://img.shields.io/badge/version-1.1.1-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
+[![Version 1.1.2](https://img.shields.io/badge/version-1.1.2-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
 [![GNOME](https://img.shields.io/badge/GNOME-any-purple.svg)](https://www.gnome.org/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
@@ -59,7 +59,7 @@ That is the whole install story. The script:
 - Grid of your installed workshop wallpapers with **real previews** (jpg/gif)  
 - Search and filters: All · Video · Scene · Web  
 - Detail pane with preview, metadata, tags  
-- One-click **Apply** / **Stop**  
+- One-click **Apply** / **Stop** / **Remove** (delete local workshop files)  
 
 ### Workshop without the Windows detour
 - Search trending, popular, recent, or any query  
@@ -84,6 +84,8 @@ That is the whole install story. The script:
 - Keep running in the **background** when you close the window  
 - **Launch at login**  
 - **Restore last wallpaper** on start  
+- **Appearance**: System / Light / Dark / Pitch black (OLED)  
+- **Accent colors**: Blue · Teal · Purple · Orange  
 - `gnomepaper-engine --background` for silent start  
 
 Open **☰ → Settings** anytime.
@@ -120,6 +122,12 @@ For **scenes**:
 ---
 
 ## Changelog
+
+### 1.1.2
+- **Remove wallpapers** from your installed library (local workshop folder, with confirm)  
+- **Appearance settings**: System / Light / Dark / Pitch black OLED  
+- **Accent color**: Blue, Teal, Purple, or Orange  
+- Earlier focus/volume/panel fixes remain on `main`  
 
 ### 1.1.1 — apology release
 We are sorry. **1.1.0** shipped two painful bugs:

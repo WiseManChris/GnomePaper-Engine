@@ -22,8 +22,10 @@ from gnomepaper_engine.steam.ownership import (  # noqa: E402
 )
 from gnomepaper_engine.steam.paths import discover_steam_installs  # noqa: E402
 from gnomepaper_engine.tray import TrayIcon  # noqa: E402
+from gnomepaper_engine.steam.remove import remove_wallpaper  # noqa: E402
 from gnomepaper_engine.ui.main_window import MainWindow  # noqa: E402
 from gnomepaper_engine.ui.settings import SettingsDialog  # noqa: E402
+from gnomepaper_engine.ui.theme import apply_theme  # noqa: E402
 from gnomepaper_engine.wallpaper.manager import WallpaperManager  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -45,6 +47,7 @@ class GnomePaperApplication(Adw.Application):
 
     def do_startup(self) -> None:  # noqa: N802
         Adw.Application.do_startup(self)
+        apply_theme(theme=self.config.ui_theme, accent=self.config.accent_color)
         self._install_actions()
         self._setup_tray()
 
@@ -55,6 +58,7 @@ class GnomePaperApplication(Adw.Application):
                 on_refresh=self.refresh_library,
                 on_apply=self.apply_wallpaper,
                 on_stop=self.stop_wallpaper,
+                on_remove=self.remove_wallpaper,
                 mute_audio=self.config.mute_audio,
                 audio_volume=self.config.audio_volume,
                 mouse_interaction=self.config.mouse_interaction,
@@ -171,6 +175,7 @@ class GnomePaperApplication(Adw.Application):
     def _on_settings_changed(self) -> None:
         # Re-sync manager config; recreate tray if background toggled on
         self.manager.config = self.config
+        apply_theme(theme=self.config.ui_theme, accent=self.config.accent_color)
         if self.config.close_to_background and self._tray is None:
             self._setup_tray()
         if self._tray is not None:
@@ -267,6 +272,25 @@ class GnomePaperApplication(Adw.Application):
                 self.window.set_active_wallpaper(item.title)
             elif "Preview set" in result.message:
                 self.window.set_active_wallpaper(f"{item.title} (static preview)")
+
+    def remove_wallpaper(self, item: WallpaperItem) -> None:
+        """Delete local workshop files and refresh the library."""
+        # Stop if this wallpaper is currently playing
+        active = self.manager.active_item
+        if active is not None and active.id == item.id:
+            self.manager.stop()
+            if self.window is not None:
+                self.window.set_active_wallpaper(None)
+                self.window.set_status("Wallpaper stopped")
+
+        result = remove_wallpaper(item)
+        if result.ok:
+            if self.config.last_wallpaper_id == item.id:
+                self.config.last_wallpaper_id = None
+                self.config.save()
+            self.refresh_library()
+        if self.window is not None:
+            self.window.show_message(result.message, error=not result.ok)
 
     def _on_mute_changed(self, muted: bool) -> None:
         # Live: apply immediately while wallpaper is running

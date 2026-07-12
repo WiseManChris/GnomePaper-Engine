@@ -51,6 +51,11 @@ class AppConfig:
     start_minimized: bool = False
     launch_at_login: bool = False
     restore_last_on_launch: bool = True
+    # Appearance (1.1.2)
+    # system | light | dark | oled
+    ui_theme: str = "system"
+    # blue | teal | purple | orange
+    accent_color: str = "blue"
 
     @classmethod
     def config_dir(cls) -> Path:

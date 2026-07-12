@@ -13,8 +13,8 @@ from gnomepaper_engine.config import AppConfig
 from gnomepaper_engine.steam.models import WallpaperItem, WallpaperType
 from gnomepaper_engine.wallpaper.backends.base import BackendResult, WallpaperBackend
 from gnomepaper_engine.wallpaper.backends.lwe import (
+    auto_detect_lwe,
     find_assets_dir,
-    find_lwe_binary,
     install_hint,
 )
 from gnomepaper_engine.wallpaper.display_geometry import monitor_geometries
@@ -54,8 +54,21 @@ class SceneBackend(WallpaperBackend):
         return False
 
     def apply(self, item: WallpaperItem, config: AppConfig) -> BackendResult:
-        binary = find_lwe_binary()
-        if binary is None:
+        explicit = (config.lwe_binary_path or "").strip() or None
+        det = auto_detect_lwe(
+            explicit,
+            known_path=config.lwe_detected_path or None,
+            known_sha256=config.lwe_binary_sha256 or None,
+        )
+        # Custom path broken? Fall back to full auto-detect.
+        if not det.found and explicit:
+            log.warning("Custom LWE path failed, re-scanning: %s", explicit)
+            det = auto_detect_lwe(
+                None,
+                known_path=config.lwe_detected_path or None,
+                known_sha256=config.lwe_binary_sha256 or None,
+            )
+        if not det.found or det.path is None:
             if item.preview_path and item.preview_path.is_file():
                 set_picture(item.preview_path)
                 return BackendResult(
@@ -64,6 +77,16 @@ class SceneBackend(WallpaperBackend):
                     f"linux-wallpaperengine.\n{install_hint()}",
                 )
             return BackendResult(False, install_hint())
+
+        binary = det.path
+        # Cache path + checksum for faster auto-detect next time
+        try:
+            config.lwe_detected_path = str(binary)
+            if det.sha256:
+                config.lwe_binary_sha256 = det.sha256
+            config.save()
+        except OSError:
+            pass
 
         self.stop()
 

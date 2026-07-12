@@ -12,7 +12,7 @@ GnomePaper Engine brings your **Steam Wallpaper Engine** library to **any GNOME-
 > No cracks. No ownership bypass. If you bought it, you’re welcome here.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version 1.1.2](https://img.shields.io/badge/version-1.1.2-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
+[![Version 1.1.3](https://img.shields.io/badge/version-1.1.3-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
 [![GNOME](https://img.shields.io/badge/GNOME-any-purple.svg)](https://www.gnome.org/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
@@ -138,7 +138,18 @@ update-desktop-database ~/.local/share/applications 2>/dev/null || true
 
 ### 3. Scene wallpapers (optional)
 
-Scenes need [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine). Build it from that project’s docs, put the binary on your `PATH` (or at `~/.local/bin/linux-wallpaperengine`), then restart GnomePaper.
+Scenes need [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine).
+
+**Easiest:** open GnomePaper → **☰ → Settings → Scene engine → Install scene engine**.  
+GnomePaper auto-detects the binary (path + SHA-256 checksum) when the build finishes.
+
+Or build from a terminal:
+
+```bash
+./scripts/install_linux_wallpaperengine.sh
+```
+
+Put the binary on your `PATH` (or at `~/.local/bin/linux-wallpaperengine`), then use **Re-detect** in Settings.
 
 ### Manual uninstall
 
@@ -159,7 +170,7 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 | **GNOME** | Vanilla GNOME, or GNOME-based (libadwaita UI) |
 | **Steam** | Native or Flatpak |
 | **Wallpaper Engine** | Owned **and** installed on that Steam account |
-| **Scene player** (optional) | `./scripts/install_linux_wallpaperengine.sh` for scene wallpapers |
+| **Scene player** (optional) | Settings → **Install scene engine**, or `./scripts/install_linux_wallpaperengine.sh` |
 
 ---
 
@@ -196,6 +207,7 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 - **Restore last wallpaper** on start  
 - **Appearance**: System / Light / Dark / Pitch black (OLED)  
 - **Accent colors**: Blue · Teal · Purple · Orange  
+- **Scene engine**: auto-detect with SHA-256 checksum, **Re-detect**, and **Install scene engine**  
 - `gnomepaper-engine --background` for silent start  
 
 Open **☰ → Settings** anytime.
@@ -210,7 +222,7 @@ Open **☰ → Settings** anytime.
 4. Browse **Installed** or **Workshop**  
 5. **Apply** a wallpaper and enjoy  
 
-For **scenes**:
+For **scenes**: Settings → **Install scene engine**, or:
 
 ```bash
 ./scripts/install_linux_wallpaperengine.sh

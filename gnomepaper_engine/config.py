@@ -56,6 +56,11 @@ class AppConfig:
     ui_theme: str = "system"
     # blue | teal | purple | orange
     accent_color: str = "blue"
+    # Optional absolute path to linux-wallpaperengine (empty = auto-detect)
+    lwe_binary_path: str = ""
+    # Last auto-detected path + SHA-256 (checksum cache for faster, reliable re-detect)
+    lwe_detected_path: str = ""
+    lwe_binary_sha256: str = ""
 
     @classmethod
     def config_dir(cls) -> Path:

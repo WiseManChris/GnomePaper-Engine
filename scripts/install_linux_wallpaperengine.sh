@@ -116,5 +116,12 @@ else
 fi
 
 echo "==> Installed: ${BIN_DIR}/linux-wallpaperengine"
+REAL_BIN="$(readlink -f "${BIN_DIR}/linux-wallpaperengine" 2>/dev/null || echo "${BIN_DIR}/linux-wallpaperengine")"
+if command -v sha256sum >/dev/null 2>&1 && [[ -f "${REAL_BIN}" ]]; then
+  SUM="$(sha256sum "${REAL_BIN}" | awk '{print $1}')"
+  echo "    SHA-256: ${SUM}"
+  # Side-car checksum for GnomePaper auto-detect / diagnostics
+  echo "${SUM}  linux-wallpaperengine" > "$(dirname "${REAL_BIN}")/linux-wallpaperengine.sha256" 2>/dev/null || true
+fi
 "${BIN_DIR}/linux-wallpaperengine" --help 2>&1 | head -20 || true
-echo "Done. Restart GnomePaper Engine and apply a scene wallpaper."
+echo "Done. In GnomePaper: Settings → Scene engine → Re-detect (or wait for auto-detect)."

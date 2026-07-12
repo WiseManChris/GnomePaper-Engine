@@ -53,7 +53,6 @@ dnf_install() {
   fi
 
   echo "warning: dnf install failed — trying to refresh RPM keys…" >&2
-  # Import any keys shipped on the system (Nobara/Fedora often need this after upgrades)
   if [[ -d /etc/pki/rpm-gpg ]]; then
     # shellcheck disable=SC2046
     sudo rpm --import $(find /etc/pki/rpm-gpg -type f 2>/dev/null | head -50) 2>/dev/null || true
@@ -75,7 +74,6 @@ dnf_install() {
     return 0
   fi
 
-  # dnf5 sometimes wants repo-wide setopt form
   if sudo dnf install -y --nogpgcheck \
       --setopt=*.gpgcheck=0 \
       "${extra[@]}" "${pkgs[@]}"; then
@@ -83,6 +81,23 @@ dnf_install() {
   fi
 
   return 1
+}
+
+# Install packages one-by-one so a single bad package does not skip freeglut etc.
+dnf_install_each() {
+  local failed=()
+  local p
+  for p in "$@"; do
+    if ! dnf_install "$p"; then
+      failed+=("$p")
+      echo "warning: could not install package: $p" >&2
+    fi
+  done
+  if [[ ${#failed[@]} -gt 0 ]]; then
+    echo "warning: failed packages: ${failed[*]}" >&2
+    return 1
+  fi
+  return 0
 }
 
 # Core toolchain only — must succeed (cmake, compilers, make, rsync).
@@ -97,7 +112,6 @@ install_core_build_tools() {
         build-essential cmake make g++ gcc git rsync pkg-config
       ;;
     dnf)
-      # Prefer full set; fall back if optional pkg names differ (Fedora vs Nobara).
       if ! dnf_install cmake make gcc gcc-c++ git rsync pkgconf-pkg-config; then
         dnf_install cmake make gcc gcc-c++ git rsync pkgconfig \
           || dnf_install cmake make gcc gcc-c++ git rsync \
@@ -120,52 +134,117 @@ install_core_build_tools() {
   esac
 }
 
-# Optional / heavier scene-engine deps — best effort (do not hide core failures).
-install_lwe_dev_libs() {
+# Packages required by linux-wallpaperengine CMakeLists find_package(...)
+# Installed as hard requirements (not best-effort).
+install_required_cmake_deps() {
   local pm
   pm="$(detect_pm)"
-  echo "==> Installing linux-wallpaperengine libraries ($pm)…"
+  echo "==> Installing required CMake dependencies ($pm)…"
   case "$pm" in
     apt)
       sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-        libgl-dev libglew-dev freeglut3-dev libsdl2-dev liblz4-dev \
+        freeglut3-dev libglew-dev libgl-dev libsdl2-dev liblz4-dev \
         libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+        libmpv-dev libpulse-dev zlib1g-dev libpng-dev libfreetype-dev \
+        libdbus-1-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
         libxxf86vm-dev libglm-dev libglfw3-dev \
-        libmpv-dev mpv libpulse-dev libfftw3-dev \
-        zlib1g-dev libpng-dev libfreetype-dev \
-        libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev \
-        || echo "warning: some library packages failed; build may still work" >&2
+        libwayland-dev wayland-protocols libxkbcommon-dev
       ;;
     dnf)
-      dnf_install --skip-broken \
+      # freeglut-devel provides GLUT (GL/glut.h + libglut) — this was the Nobara failure.
+      # Install one-by-one so GPG fallback works and one bad name does not skip GLUT.
+      dnf_install_each \
+        freeglut freeglut-devel \
+        mesa-libGL-devel glew-devel \
+        SDL2-devel lz4-devel \
+        zlib-devel libpng-devel freetype-devel \
+        dbus-devel \
         libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
-        mesa-libGL-devel glew-devel freeglut-devel SDL2-devel lz4-devel \
-        ffmpeg-free-devel libXxf86vm-devel glm-devel glfw-devel \
-        mpv mpv-devel pulseaudio-libs-devel fftw-devel gmp-devel \
-        zlib-devel libpng-devel freetype-devel wayland-devel \
-        wayland-protocols-devel libxkbcommon-devel dbus-devel \
-        || echo "warning: some library packages failed; build may still work" >&2
+        libXxf86vm-devel \
+        pulseaudio-libs-devel \
+        mpv-devel mpv \
+        glfw-devel glm-devel \
+        wayland-devel wayland-protocols-devel libxkbcommon-devel \
+        gmp-devel fftw-devel \
+        || true
+      # FFmpeg headers (package name varies by Fedora/Nobara)
+      dnf_install ffmpeg-free-devel \
+        || dnf_install ffmpeg-devel \
+        || dnf_install_each \
+             libavcodec-free-devel libavformat-free-devel \
+             libavutil-free-devel libswscale-free-devel \
+        || true
       ;;
     pacman)
       sudo pacman -Sy --needed --noconfirm \
-        libxrandr libxinerama libxcursor libxi \
-        mesa glew freeglut sdl2 lz4 ffmpeg glm glfw-x11 \
-        mpv libpulse fftw zlib libpng freetype2 \
-        wayland wayland-protocols libxkbcommon dbus \
-        || echo "warning: some library packages failed; build may still work" >&2
+        freeglut glew mesa sdl2 lz4 ffmpeg mpv libpulse zlib libpng freetype2 \
+        dbus libxrandr libxinerama libxcursor libxi glm glfw-x11 \
+        wayland wayland-protocols libxkbcommon fftw
       ;;
     zypper)
       sudo zypper --non-interactive install \
-        libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
-        Mesa-libGL-devel glew-devel freeglut-devel libSDL2-devel liblz4-devel \
-        ffmpeg-5-libavcodec-devel glm-devel glfw-devel \
-        mpv-devel libpulse-devel fftw3-devel \
-        zlib-devel libpng-devel freetype2-devel \
-        wayland-devel wayland-protocols-devel libxkbcommon-devel dbus-1-devel \
-        || echo "warning: some library packages failed; build may still work" >&2
+        freeglut-devel glew-devel Mesa-libGL-devel libSDL2-devel liblz4-devel \
+        mpv-devel libpulse-devel zlib-devel libpng-devel freetype2-devel \
+        dbus-1-devel libXrandr-devel libXinerama-devel libXcursor-devel \
+        libXi-devel glm-devel glfw-devel \
+        wayland-devel wayland-protocols-devel libxkbcommon-devel \
+        ffmpeg-5-libavcodec-devel || true
       ;;
   esac
+}
+
+# Headers / libs CMake must see before configure.
+have_glut() {
+  [[ -f /usr/include/GL/glut.h ]] \
+    || [[ -f /usr/include/GL/freeglut.h ]] \
+    || pkg-config --exists glut 2>/dev/null \
+    || pkg-config --exists freeglut 2>/dev/null \
+    || ldconfig -p 2>/dev/null | grep -q 'libglut\.so'
+}
+
+ensure_glut() {
+  if have_glut; then
+    echo "    GLUT: OK"
+    return 0
+  fi
+  echo "==> GLUT not found — installing freeglut development package…"
+  case "$(detect_pm)" in
+    apt)
+      sudo DEBIAN_FRONTEND=noninteractive apt-get install -y freeglut3-dev
+      ;;
+    dnf)
+      dnf_install freeglut freeglut-devel \
+        || dnf_install freeglut-devel \
+        || true
+      ;;
+    pacman)
+      sudo pacman -Sy --needed --noconfirm freeglut
+      ;;
+    zypper)
+      sudo zypper --non-interactive install freeglut-devel
+      ;;
+  esac
+  if ! have_glut; then
+    echo "" >&2
+    echo "error: Could NOT find GLUT (missing freeglut headers/libs)." >&2
+    echo "       CMake needs freeglut-devel (Fedora/Nobara) or freeglut3-dev (Debian)." >&2
+    echo "" >&2
+    case "$(detect_pm)" in
+      dnf)
+        echo "  Try manually:" >&2
+        echo "    sudo dnf install -y --nogpgcheck freeglut freeglut-devel" >&2
+        ;;
+      apt)
+        echo "  Try manually:" >&2
+        echo "    sudo apt-get install -y freeglut3-dev" >&2
+        ;;
+      *)
+        echo "  Install freeglut development packages for your distro, then re-run." >&2
+        ;;
+    esac
+    exit 1
+  fi
+  echo "    GLUT: OK (installed)"
 }
 
 # Refresh PATH for tools just installed into /usr/bin (some shells keep a stale hash).
@@ -179,9 +258,8 @@ if ! command -v cmake >/dev/null 2>&1 \
   hash -r 2>/dev/null || true
 fi
 
-# Always try scene libs when we have a package manager (idempotent).
 if [[ "$(detect_pm)" != "unknown" ]]; then
-  install_lwe_dev_libs || true
+  install_required_cmake_deps || true
 fi
 
 # Hard fail with a clear fix if cmake is still missing (e.g. sudo was cancelled).
@@ -192,7 +270,7 @@ if ! command -v cmake >/dev/null 2>&1; then
   echo "" >&2
   case "$(detect_pm)" in
     apt)  echo "  sudo apt-get install -y build-essential cmake" >&2 ;;
-    dnf)  echo "  sudo dnf install -y cmake gcc gcc-c++ make" >&2 ;;
+    dnf)  echo "  sudo dnf install -y --nogpgcheck cmake gcc gcc-c++ make" >&2 ;;
     pacman) echo "  sudo pacman -S --needed base-devel cmake" >&2 ;;
     zypper) echo "  sudo zypper install cmake gcc-c++ make" >&2 ;;
     *)    echo "  Install package 'cmake' for your distro, then re-run." >&2 ;;
@@ -205,11 +283,12 @@ fi
 
 need_cmd cmake
 need_cmd make
-# g++ or c++
 if ! command -v g++ >/dev/null 2>&1 && ! command -v c++ >/dev/null 2>&1; then
   echo "error: a C++ compiler (g++) is required" >&2
   exit 1
 fi
+
+ensure_glut
 
 echo "    cmake: $(command -v cmake) ($(cmake --version | head -1))"
 
@@ -227,6 +306,16 @@ else
 fi
 
 echo "==> Configuring CMake (Release)…"
+# Drop a broken half-configured tree so re-runs after installing freeglut work cleanly
+if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]]; then
+  # If previous configure failed missing GLUT, wipe cache and retry clean
+  if grep -q 'GLUT_INCLUDE_DIR-NOTFOUND\|Could NOT find GLUT\|GLUT_glut_LIBRARY-NOTFOUND' \
+       "${BUILD_DIR}/CMakeCache.txt" 2>/dev/null \
+    || ! grep -q 'GLUT_INCLUDE_DIR:PATH=/' "${BUILD_DIR}/CMakeCache.txt" 2>/dev/null; then
+    echo "    Clearing stale CMake cache from a previous failed configure…"
+    rm -rf "${BUILD_DIR}"
+  fi
+fi
 mkdir -p "${BUILD_DIR}"
 cmake -S "${SRC}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 
@@ -256,10 +345,8 @@ if [[ -z "${BIN}" ]]; then
 fi
 
 mkdir -p "${BIN_DIR}"
-# Copy binary + neighboring runtime files if an output dir exists
 OUT_DIR="$(dirname "${BIN}")"
 if [[ -d "${OUT_DIR}" ]]; then
-  # Prefer symlink of the whole output tree into share, binary into bin
   SHARE="${PREFIX}/share/linux-wallpaperengine"
   mkdir -p "${SHARE}"
   rsync -a --delete "${OUT_DIR}/" "${SHARE}/" 2>/dev/null \
@@ -274,7 +361,6 @@ REAL_BIN="$(readlink -f "${BIN_DIR}/linux-wallpaperengine" 2>/dev/null || echo "
 if command -v sha256sum >/dev/null 2>&1 && [[ -f "${REAL_BIN}" ]]; then
   SUM="$(sha256sum "${REAL_BIN}" | awk '{print $1}')"
   echo "    SHA-256: ${SUM}"
-  # Side-car checksum for GnomePaper auto-detect / diagnostics
   echo "${SUM}  linux-wallpaperengine" > "$(dirname "${REAL_BIN}")/linux-wallpaperengine.sha256" 2>/dev/null || true
 fi
 "${BIN_DIR}/linux-wallpaperengine" --help 2>&1 | head -20 || true

@@ -1,4 +1,10 @@
-"""Mark X11 windows as full-screen desktop backgrounds (below everything)."""
+"""
+Place wallpaper windows behind apps without covering the GNOME top bar.
+
+Important: do NOT set _NET_WM_WINDOW_TYPE_DESKTOP or FULLSCREEN on GNOME —
+those make Shell hide the panel (clock / control center). We use a normal
+window kept below everything, sized to the workarea only.
+"""
 
 from __future__ import annotations
 
@@ -23,12 +29,10 @@ def resize_xid(xid: int, x: int, y: int, w: int, h: int) -> None:
     """Force window geometry (gravity 0 = northwest)."""
     id_str = str(xid)
     if shutil.which("wmctrl"):
-        # -e gravity,x,y,w,h
         _run(["wmctrl", "-i", "-r", id_str, "-e", f"0,{x},{y},{w},{h}"])
     if shutil.which("xdotool"):
-        _run(["xdotool", "windowmove", id_str, str(x), str(y)])
-        _run(["xdotool", "windowsize", id_str, str(w), str(h)])
-    # Also try xprop-less path via xwininfo for verification
+        _run(["xdotool", "windowmove", "--sync", id_str, str(x), str(y)])
+        _run(["xdotool", "windowsize", "--sync", id_str, str(w), str(h)])
     log.info("Resized window %#x → %dx%d+%d+%d", xid, w, h, x, y)
 
 
@@ -38,17 +42,40 @@ def mark_xid_as_desktop(
     geometry: tuple[int, int, int, int] | None = None,
 ) -> None:
     """
-    Apply EWMH desktop + below + skip-taskbar hints, and optionally force size.
+    Make a window a wallpaper layer that does not steal the GNOME panel.
 
-    Order matters on GNOME/XWayland: size first, then desktop type / below.
+    - Removes fullscreen / maximized (Shell hides chrome for those)
+    - Does NOT set WINDOW_TYPE_DESKTOP (also hides panel on GNOME)
+    - Uses below + skip_taskbar + skip_pager + sticky
+    - Forces workarea geometry when provided
     """
     id_str = str(xid)
 
-    if geometry is not None:
-        x, y, w, h = geometry
-        resize_xid(xid, x, y, w, h)
+    if shutil.which("wmctrl"):
+        # Critical: clear states that make GNOME hide the top bar
+        _run(
+            [
+                "wmctrl",
+                "-i",
+                "-r",
+                id_str,
+                "-b",
+                "remove,fullscreen,maximized_vert,maximized_horz,above",
+            ]
+        )
+        _run(
+            [
+                "wmctrl",
+                "-i",
+                "-r",
+                id_str,
+                "-b",
+                "add,below,skip_taskbar,skip_pager,sticky",
+            ]
+        )
 
     if shutil.which("xprop"):
+        # Keep as NORMAL window type (not DESKTOP)
         _run(
             [
                 "xprop",
@@ -59,9 +86,10 @@ def mark_xid_as_desktop(
                 "32a",
                 "-set",
                 "_NET_WM_WINDOW_TYPE",
-                "_NET_WM_WINDOW_TYPE_DESKTOP",
+                "_NET_WM_WINDOW_TYPE_NORMAL",
             ]
         )
+        # Explicit state: below only — no fullscreen atoms
         _run(
             [
                 "xprop",
@@ -75,7 +103,7 @@ def mark_xid_as_desktop(
                 "_NET_WM_STATE_BELOW,_NET_WM_STATE_SKIP_TASKBAR,_NET_WM_STATE_SKIP_PAGER,_NET_WM_STATE_STICKY",
             ]
         )
-        # Undecorated / no input focus hints
+        # Undecorated
         _run(
             [
                 "xprop",
@@ -90,24 +118,24 @@ def mark_xid_as_desktop(
             ]
         )
 
-    if shutil.which("wmctrl"):
-        _run(
-            [
-                "wmctrl",
-                "-i",
-                "-r",
-                id_str,
-                "-b",
-                "add,below,skip_taskbar,skip_pager,sticky",
-            ]
-        )
-        # Re-apply size after state change (GNOME sometimes resets it)
-        if geometry is not None:
-            x, y, w, h = geometry
+    if geometry is not None:
+        x, y, w, h = geometry
+        resize_xid(xid, x, y, w, h)
+        # Second pass after state changes
+        if shutil.which("wmctrl"):
             _run(["wmctrl", "-i", "-r", id_str, "-e", f"0,{x},{y},{w},{h}"])
-        _run(["wmctrl", "-i", "-r", id_str, "-b", "add,below"])
+            _run(
+                [
+                    "wmctrl",
+                    "-i",
+                    "-r",
+                    id_str,
+                    "-b",
+                    "remove,fullscreen,maximized_vert,maximized_horz",
+                ]
+            )
+            _run(["wmctrl", "-i", "-r", id_str, "-b", "add,below"])
 
-    # Lower stacking
     if shutil.which("xdotool"):
         _run(["xdotool", "windowlower", id_str])
 
@@ -119,7 +147,7 @@ def mark_window_by_pid(
     retries: int = 40,
     delay: float = 0.25,
 ) -> bool:
-    """Find windows owned by pid (or title match) and make them full desktop surfaces."""
+    """Find windows owned by pid (or title match) and promote to wallpaper layer."""
     if not shutil.which("wmctrl") and not shutil.which("xprop"):
         return False
 
@@ -130,11 +158,9 @@ def mark_window_by_pid(
         if xids:
             for xid in xids:
                 mark_xid_as_desktop(xid, geometry=geometry)
-            # Second pass a moment later — GLFW often resizes itself after map
             if geometry is not None and attempt == 0:
-                time.sleep(0.4)
+                time.sleep(0.5)
                 for xid in _xids_for_pid(pid) or xids:
-                    resize_xid(xid, *geometry)
                     mark_xid_as_desktop(xid, geometry=geometry)
             return True
         time.sleep(delay)
@@ -143,7 +169,6 @@ def mark_window_by_pid(
 
 
 def _xids_for_pid(pid: int) -> list[int]:
-    """Parse `wmctrl -lp` for matching PIDs."""
     if not shutil.which("wmctrl"):
         return []
     try:
@@ -166,7 +191,6 @@ def _xids_for_pid(pid: int) -> list[int]:
 
 
 def _xids_for_wallpaper_titles() -> list[int]:
-    """Fallback: match known wallpaper window titles."""
     if not shutil.which("wmctrl"):
         return []
     try:
@@ -194,11 +218,7 @@ def lower_pid_windows(
     *,
     geometry: tuple[int, int, int, int] | None = None,
 ) -> None:
+    """Keep wallpaper below apps and re-assert workarea (never fullscreen)."""
     xids = _xids_for_pid(pid) or _xids_for_wallpaper_titles()
     for xid in xids:
-        if geometry is not None:
-            resize_xid(xid, *geometry)
-        if shutil.which("wmctrl"):
-            _run(["wmctrl", "-i", "-r", str(xid), "-b", "add,below"])
-        if shutil.which("xdotool"):
-            _run(["xdotool", "windowlower", str(xid)])
+        mark_xid_as_desktop(xid, geometry=geometry)

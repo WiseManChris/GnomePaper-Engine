@@ -98,7 +98,7 @@ class SceneBackend(WallpaperBackend):
                 "fill",
                 bg_arg,
             ]
-            log.info("Starting LWE fullscreen: %s", " ".join(cmd))
+            log.info("Starting LWE (workarea %dx%d+%d+%d): %s", w, h, x, y, " ".join(cmd))
             log_path = config.cache_dir() / f"lwe_{x}_{y}.log"
             try:
                 log_f = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
@@ -166,7 +166,8 @@ class SceneBackend(WallpaperBackend):
         self._lower_stop.clear()
 
         def _loop() -> None:
-            while not self._lower_stop.wait(2.0):
+            # Re-assert often — LWE/GLFW may re-enter fullscreen and hide the panel
+            while not self._lower_stop.wait(1.0):
                 for idx, p in enumerate(list(self._procs)):
                     if p.poll() is None:
                         geo = (

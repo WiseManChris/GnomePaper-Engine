@@ -1112,36 +1112,85 @@ class MainWindow(Adw.ApplicationWindow):
                 self._prompt_link_steam()
         return GLib.SOURCE_REMOVE
 
-    def _prompt_steamcmd_download(self, item: WorkshopItem) -> None:
-        """Ask for Steam password when account is not linked yet."""
+    def _prompt_steamcmd_download(
+        self, item: WorkshopItem, *, guard_only: bool = False
+    ) -> None:
+        """Ask for Steam password / Guard when keyring is empty or Guard is required."""
+        from gnomepaper_engine.workshop.keyring import lookup_steam_password
+
+        saved = lookup_steam_password(self._steam_username) if self._steam_username else None
+
+        if guard_only and self._steam_username and saved:
+            # Simple Guard-only dialog — easier approval flow
+            dialog = Adw.AlertDialog(
+                heading="Steam Guard code",
+                body=(
+                    f"Steam needs a one-time code to download “{item.title}”.\n"
+                    "Open your Steam Mobile Authenticator (or email) and enter the code."
+                ),
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("download", "Continue")
+            dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("download")
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            box.set_margin_top(8)
+            guard_entry = Gtk.Entry(
+                placeholder_text="5-digit code from Steam Guard",
+                hexpand=True,
+            )
+            guard_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+            box.append(guard_entry)
+            dialog.set_extra_child(box)
+
+            def on_guard(_d: Adw.AlertDialog, response: str) -> None:
+                if response != "download":
+                    return
+                self._run_steamcmd_download(
+                    item,
+                    self._steam_username,
+                    saved or "",
+                    guard_entry.get_text().strip(),
+                )
+
+            dialog.connect("response", on_guard)
+            dialog.present(self)
+            return
+
         dialog = Adw.AlertDialog(
-            heading="Steam login for download",
+            heading="Link Steam to download",
             body=(
                 f"Download “{item.title}”.\n"
-                "Link your account in settings to skip this next time.\n"
-                "Account must own Wallpaper Engine."
+                "Account must own Wallpaper Engine.\n"
+                "Password is saved in your GNOME Keyring (not in a text file) "
+                "so you won't re-type it every time."
             ),
         )
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("download", "Download")
+        dialog.add_response("download", "Save & download")
         dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("download")
         dialog.set_close_response("cancel")
         box, user_entry, pass_entry, guard_entry = self._steam_login_form()
+        if saved and pass_entry is not None:
+            pass_entry.set_placeholder_text("Saved in keyring — leave blank to reuse")
         dialog.set_extra_child(box)
 
         def on_response(_dlg: Adw.AlertDialog, response: str) -> None:
             if response != "download" or pass_entry is None:
                 return
             username = user_entry.get_text().strip()
-            password = pass_entry.get_text()
+            password = pass_entry.get_text() or (saved or "")
             guard = guard_entry.get_text().strip()
             if username and username != self._steam_username:
                 self._steam_username = username
                 if self._on_steam_username_changed:
                     self._on_steam_username_changed(username)
             if not username or not password:
-                self.show_message("Username and password required.", error=True)
+                self.show_message(
+                    "Username and password required (or Link Steam first).",
+                    error=True,
+                )
                 return
             self._run_steamcmd_download(item, username, password, guard)
 
@@ -1184,13 +1233,19 @@ class MainWindow(Adw.ApplicationWindow):
         self._ws_install_btn.set_sensitive(True)
         if result.linked:
             self._set_steam_linked(True)
-        if result.needs_guard or result.needs_password:
+        if result.needs_guard:
             self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
-            self._set_steam_linked(False)
             item = self._ws_selected
             if item is not None and item.id == item_id:
-                self._prompt_steamcmd_download(item)
+                self._prompt_steamcmd_download(item, guard_only=True)
+            return GLib.SOURCE_REMOVE
+        if result.needs_password:
+            self._ws_install_btn.set_label("Download")
+            self.show_message(result.message, error=True)
+            item = self._ws_selected
+            if item is not None and item.id == item_id:
+                self._prompt_steamcmd_download(item, guard_only=False)
             return GLib.SOURCE_REMOVE
 
         if not result.ok:

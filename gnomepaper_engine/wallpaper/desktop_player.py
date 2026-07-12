@@ -77,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
             self.set_accept_focus(False)
             self.set_focus_on_map(False)
             self.stick()
-            self.set_type_hint(Gdk.WindowTypeHint.DESKTOP)
+            # NORMAL (not DESKTOP): GNOME hides the top bar for DESKTOP/fullscreen
+            self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
+            self.set_decorated(False)
 
             # rect is X11/root pixels from xrandr. GTK may use a scale factor on
             # XWayland, so we convert to logical units for GTK APIs and keep the

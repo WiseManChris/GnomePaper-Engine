@@ -423,9 +423,23 @@ class SteamCmdResult:
 
 
 def _steamcmd_env() -> dict[str, str]:
+    """
+    Isolate SteamCMD from the desktop Steam client.
+
+    Desktop Steam was hijacking logs/credentials under ~/.local/share/Steam,
+    which made cached logins unreliable. We give SteamCMD its own HOME.
+    """
     env = os.environ.copy()
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
+    # Isolated home so config/ssfn live under our steamcmd tree
+    home = steamcmd_dir() / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    env["HOME"] = str(home)
+    # Avoid inheriting desktop Steam runtime vars
+    for key in list(env):
+        if key.startswith("STEAM_") or key in ("SteamAppId", "SteamGameId"):
+            env.pop(key, None)
     return env
 
 
@@ -461,33 +475,54 @@ def _run_steamcmd(
 def _login_failure(output: str) -> SteamCmdResult | None:
     """Return a failure result if the SteamCMD log indicates login problems."""
     lower = output.lower()
-    if "two-factor" in lower or "steam guard" in lower or (
-        "guard" in lower and "code" in lower
+    if (
+        "two-factor" in lower
+        or "steam guard" in lower
+        or "guard code" in lower
+        or "mobile authenticator" in lower
+        or ("enter" in lower and "code" in lower and "guard" in lower)
     ):
         return SteamCmdResult(
             False,
-            "Steam Guard code required. Enter the code from your authenticator/email.",
+            "Steam Guard: open your authenticator app and enter the code, then try again.",
             needs_guard=True,
             log_tail=output[-600:],
+        )
+    if (
+        "cached credentials not found" in lower
+        or "no cached credentials" in lower
+        or "nopromptforpassword" in lower
+    ):
+        return SteamCmdResult(
+            False,
+            "No saved Steam session — signing in with your linked password…",
+            needs_password=True,
+            log_tail=output[-400:],
         )
     if "invalid password" in lower:
         return SteamCmdResult(
             False,
-            "Steam login failed — check username/password.",
+            "Steam login failed — wrong password. Re-link (top-left) with the correct one.",
             needs_password=True,
             log_tail=output[-600:],
         )
-    if "login failure" in lower or "failed to log" in lower:
+    if "login failure" in lower or "failed to log" in lower or "failed (no" in lower:
         return SteamCmdResult(
             False,
-            "Steam login failed — re-link your account (password may be required).",
+            "Steam login failed. Re-link your account (top-left).",
             needs_password=True,
+            log_tail=output[-600:],
+        )
+    if "rate limit" in lower or "too many" in lower:
+        return SteamCmdResult(
+            False,
+            "Steam is rate-limiting logins. Wait a few minutes, then try again.",
             log_tail=output[-600:],
         )
     if "no subscription" in lower:
         return SteamCmdResult(
             False,
-            "Steam reports no subscription — this account must own Wallpaper Engine.",
+            "This Steam account must own Wallpaper Engine.",
             log_tail=output[-600:],
         )
     return None
@@ -603,7 +638,8 @@ def download_via_steamcmd(
     from gnomepaper_engine.config import AppConfig
     from gnomepaper_engine.workshop.keyring import lookup_steam_password, store_steam_password
 
-    # Silent renew from keyring when session expires
+    # Prefer keyring password always — SteamCMD "cached credentials" are unreliable
+    # when desktop Steam is also installed (they fight over ~/.local/share/Steam).
     if not password and use_cached_login:
         password = lookup_steam_password(username) or ""
 
@@ -612,7 +648,8 @@ def download_via_steamcmd(
     except Exception as exc:
         return SteamCmdResult(False, f"Could not install SteamCMD: {exc}")
 
-    dl_root = AppConfig.cache_dir() / "steamcmd_dl"
+    # Download into isolated tree under steamcmd home (stable credentials path)
+    dl_root = steamcmd_dir() / "home" / ".local" / "share" / "Steam"
     dl_root.mkdir(parents=True, exist_ok=True)
     log_path = AppConfig.cache_dir() / "steamcmd_last.log"
 
@@ -642,40 +679,41 @@ def download_via_steamcmd(
             args, cwd=cmd_bin.parent, timeout=900, log_path=log_path
         )
 
-    # 1) Try cached SteamCMD session (no password on CLI)
-    _code, output = _attempt(["+login", username], "Using linked Steam session…")
+    if not password:
+        return SteamCmdResult(
+            False,
+            "No saved Steam password. Click Link Steam (top-left) once — "
+            "we store it in your GNOME Keyring for automatic downloads.",
+            needs_password=True,
+        )
+
+    # Always login with password from keyring / dialog (reliable permanent link)
+    _code, output = _attempt(
+        ["+login", username, password],
+        "Signing in to Steam…",
+    )
     fail = _login_failure(output)
-    used_password = False
-
-    # 2) If session expired, use keyring / provided password
-    if fail is not None and fail.needs_password:
-        if password:
-            _code, output = _attempt(
-                ["+login", username, password],
-                "Renewing Steam session…",
-            )
-            fail = _login_failure(output)
-            used_password = True
-        else:
-            return SteamCmdResult(
-                False,
-                "Steam session expired. Re-link your account (top-left) once.",
-                needs_password=True,
-                log_tail=output[-600:],
-            )
-
     if fail is not None:
         return fail
 
-    if used_password and password:
-        store_steam_password(username, password)
-
+    store_steam_password(username, password)
     lower = output.lower()
 
-    # Locate downloaded item
+    # Locate downloaded item (isolated SteamCMD home)
     candidates = [
         dl_root / "steamapps" / "workshop" / "content" / _APP_ID / item_id,
         dl_root / "workshop" / "content" / _APP_ID / item_id,
+        steamcmd_dir()
+        / "home"
+        / ".local"
+        / "share"
+        / "Steam"
+        / "steamapps"
+        / "workshop"
+        / "content"
+        / _APP_ID
+        / item_id,
+        steamcmd_dir() / "steamapps" / "workshop" / "content" / _APP_ID / item_id,
     ]
     # Also search under dl_root
     found: Path | None = None

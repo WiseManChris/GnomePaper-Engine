@@ -98,7 +98,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         about = Adw.PreferencesGroup(title="About")
         page.add(about)
         note = Adw.ActionRow(
-            title="GnomePaper Engine 1.1",
+            title="GnomePaper Engine 1.1.1",
             subtitle="Any GNOME desktop · by WiseManChris · requires owning WE on Steam",
         )
         about.add(note)

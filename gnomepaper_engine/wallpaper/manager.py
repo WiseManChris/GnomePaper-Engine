@@ -18,7 +18,6 @@ class WallpaperManager:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        # More specific backends first
         self._backends: list[WallpaperBackend] = [
             SceneBackend(),
             VideoBackend(),
@@ -51,7 +50,6 @@ class WallpaperManager:
             self.config.last_wallpaper_id = item.id
             self.config.save()
         else:
-            # Still remember selection if a static preview was applied
             self.config.last_wallpaper_id = item.id
             self.config.save()
         return result
@@ -64,6 +62,30 @@ class WallpaperManager:
                 backend.stop()
         self._active = None
         self._active_item = None
+
+    def set_audio(self, *, volume: int | None = None, muted: bool | None = None) -> None:
+        """
+        Apply live volume/mute to the running wallpaper (no re-apply needed).
+
+        Updates config and pushes to the active backend (Pulse + player file).
+        """
+        if volume is not None:
+            self.config.audio_volume = max(0, min(100, int(volume)))
+        if muted is not None:
+            self.config.mute_audio = bool(muted)
+        self.config.save()
+
+        vol = self.config.audio_volume
+        mut = self.config.mute_audio
+        active = self._active
+        if active is None or not active.is_running:
+            return
+        setter = getattr(active, "set_audio", None)
+        if callable(setter):
+            try:
+                setter(volume=vol, muted=mut)
+            except Exception as exc:
+                log.warning("Live audio update failed: %s", exc)
 
     def _backend_for(self, item: WallpaperItem) -> WallpaperBackend | None:
         for backend in self._backends:

@@ -1,9 +1,6 @@
 """
-Place wallpaper windows behind apps without covering the GNOME top bar.
-
-Important: do NOT set _NET_WM_WINDOW_TYPE_DESKTOP or FULLSCREEN on GNOME —
-those make Shell hide the panel (clock / control center). We use a normal
-window kept below everything, sized to the workarea only.
+Place wallpaper windows behind apps without covering the GNOME top bar,
+without appearing in the dock, and without stealing keyboard/mouse focus.
 """
 
 from __future__ import annotations
@@ -14,6 +11,9 @@ import subprocess
 import time
 
 log = logging.getLogger(__name__)
+
+_WALLPAPER_CLASS = "gnomepaper-wallpaper"
+_WALLPAPER_TITLE = "GnomePaper Wallpaper Surface"
 
 
 def _run(cmd: list[str]) -> bool:
@@ -26,33 +26,114 @@ def _run(cmd: list[str]) -> bool:
 
 
 def resize_xid(xid: int, x: int, y: int, w: int, h: int) -> None:
-    """Force window geometry (gravity 0 = northwest)."""
     id_str = str(xid)
     if shutil.which("wmctrl"):
         _run(["wmctrl", "-i", "-r", id_str, "-e", f"0,{x},{y},{w},{h}"])
     if shutil.which("xdotool"):
-        _run(["xdotool", "windowmove", "--sync", id_str, str(x), str(y)])
-        _run(["xdotool", "windowsize", "--sync", id_str, str(w), str(h)])
-    log.info("Resized window %#x → %dx%d+%d+%d", xid, w, h, x, y)
+        _run(["xdotool", "windowmove", id_str, str(x), str(y)])
+        _run(["xdotool", "windowsize", id_str, str(w), str(h)])
 
 
-def mark_xid_as_desktop(
-    xid: int,
-    *,
-    geometry: tuple[int, int, int, int] | None = None,
-) -> None:
-    """
-    Make a window a wallpaper layer that does not steal the GNOME panel.
+def _hide_from_dock(xid: int) -> None:
+    id_str = str(xid)
+    if shutil.which("xdotool"):
+        _run(
+            [
+                "xdotool",
+                "set_window",
+                "--name",
+                _WALLPAPER_TITLE,
+                "--classname",
+                _WALLPAPER_CLASS,
+                "--class",
+                _WALLPAPER_CLASS,
+                id_str,
+            ]
+        )
+    if shutil.which("xprop"):
+        _run(
+            [
+                "xprop",
+                "-id",
+                id_str,
+                "-f",
+                "WM_NAME",
+                "8s",
+                "-set",
+                "WM_NAME",
+                _WALLPAPER_TITLE,
+            ]
+        )
+        _run(
+            [
+                "xprop",
+                "-id",
+                id_str,
+                "-f",
+                "_NET_WM_NAME",
+                "8u",
+                "-set",
+                "_NET_WM_NAME",
+                _WALLPAPER_TITLE,
+            ]
+        )
+        _run(
+            [
+                "xprop",
+                "-id",
+                id_str,
+                "-f",
+                "_GTK_APPLICATION_ID",
+                "8u",
+                "-set",
+                "_GTK_APPLICATION_ID",
+                "io.github.gnomepaper.WallpaperSurface",
+            ]
+        )
+        _run(["xprop", "-id", id_str, "-remove", "BAMF_DESKTOP_FILE_HINT"])
 
-    - Removes fullscreen / maximized (Shell hides chrome for those)
-    - Does NOT set WINDOW_TYPE_DESKTOP (also hides panel on GNOME)
-    - Uses below + skip_taskbar + skip_pager + sticky
-    - Forces workarea geometry when provided
-    """
+
+def _set_no_input_hints(xid: int) -> None:
+    """Ask the WM not to give this window keyboard focus."""
+    id_str = str(xid)
+    if not shutil.which("xprop"):
+        return
+    # WM_HINTS: flags=InputHint(1), input=0 → does not want keyboard input
+    # format: flags, input, initial_state, icon_pixmap, icon_window, icon_x, icon_y, icon_mask, window_group
+    _run(
+        [
+            "xprop",
+            "-id",
+            id_str,
+            "-f",
+            "WM_HINTS",
+            "32i",
+            "-set",
+            "WM_HINTS",
+            "1, 0, 1, 0, 0, 0, 0, 0, 0",
+        ]
+    )
+    # Motif: undecorated, functions=0
+    _run(
+        [
+            "xprop",
+            "-id",
+            id_str,
+            "-f",
+            "_MOTIF_WM_HINTS",
+            "32c",
+            "-set",
+            "_MOTIF_WM_HINTS",
+            "0x3, 0x0, 0x0, 0x0, 0x0",
+        ]
+    )
+
+
+def _apply_layer_state(xid: int) -> None:
+    """Below + skip taskbar/pager. Never touches input focus."""
     id_str = str(xid)
 
     if shutil.which("wmctrl"):
-        # Critical: clear states that make GNOME hide the top bar
         _run(
             [
                 "wmctrl",
@@ -75,7 +156,6 @@ def mark_xid_as_desktop(
         )
 
     if shutil.which("xprop"):
-        # Keep as NORMAL window type (not DESKTOP)
         _run(
             [
                 "xprop",
@@ -89,7 +169,6 @@ def mark_xid_as_desktop(
                 "_NET_WM_WINDOW_TYPE_NORMAL",
             ]
         )
-        # Explicit state: below only — no fullscreen atoms
         _run(
             [
                 "xprop",
@@ -103,41 +182,58 @@ def mark_xid_as_desktop(
                 "_NET_WM_STATE_BELOW,_NET_WM_STATE_SKIP_TASKBAR,_NET_WM_STATE_SKIP_PAGER,_NET_WM_STATE_STICKY",
             ]
         )
-        # Undecorated
         _run(
             [
                 "xprop",
                 "-id",
                 id_str,
                 "-f",
-                "_MOTIF_WM_HINTS",
+                "_NET_WM_STRUT",
                 "32c",
                 "-set",
-                "_MOTIF_WM_HINTS",
-                "0x2, 0x0, 0x0, 0x0, 0x0",
+                "_NET_WM_STRUT",
+                "0, 0, 0, 0",
             ]
         )
 
+    if shutil.which("xdotool"):
+        for state in ("FULLSCREEN", "MAXIMIZED_VERT", "MAXIMIZED_HORZ", "ABOVE"):
+            _run(["xdotool", "windowstate", "--remove", state, id_str])
+        for state in ("BELOW", "SKIP_TASKBAR", "SKIP_PAGER", "STICKY"):
+            _run(["xdotool", "windowstate", "--add", state, id_str])
+        # Lower only — NEVER windowfocus (that steals the keyboard from the user)
+        _run(["xdotool", "windowlower", id_str])
+
+
+def mark_xid_as_desktop(
+    xid: int,
+    *,
+    geometry: tuple[int, int, int, int] | None = None,
+    full: bool = True,
+) -> None:
+    """
+    Wallpaper layer: below apps, workarea geometry, hidden from dock.
+
+    full=True  → also rebrand class/title and no-input hints (startup)
+    full=False → light reassert only (periodic loop — must not steal focus)
+    """
+    _apply_layer_state(xid)
+    if full:
+        _hide_from_dock(xid)
+        _set_no_input_hints(xid)
+
     if geometry is not None:
         x, y, w, h = geometry
+        if y < 1:
+            y = 32
+            h = max(1, h - 32)
         resize_xid(xid, x, y, w, h)
-        # Second pass after state changes
-        if shutil.which("wmctrl"):
-            _run(["wmctrl", "-i", "-r", id_str, "-e", f"0,{x},{y},{w},{h}"])
-            _run(
-                [
-                    "wmctrl",
-                    "-i",
-                    "-r",
-                    id_str,
-                    "-b",
-                    "remove,fullscreen,maximized_vert,maximized_horz",
-                ]
-            )
-            _run(["wmctrl", "-i", "-r", id_str, "-b", "add,below"])
+        _apply_layer_state(xid)
 
-    if shutil.which("xdotool"):
-        _run(["xdotool", "windowlower", id_str])
+    if full and shutil.which("xdotool"):
+        # One-time: if wallpaper grabbed focus at map, release it once.
+        # Do NOT do this on the periodic loop.
+        _run(["xdotool", "windowlower", str(xid)])
 
 
 def mark_window_by_pid(
@@ -147,21 +243,19 @@ def mark_window_by_pid(
     retries: int = 40,
     delay: float = 0.25,
 ) -> bool:
-    """Find windows owned by pid (or title match) and promote to wallpaper layer."""
     if not shutil.which("wmctrl") and not shutil.which("xprop"):
         return False
 
-    for attempt in range(retries):
+    for _attempt in range(retries):
         xids = _xids_for_pid(pid)
         if not xids:
             xids = _xids_for_wallpaper_titles()
         if xids:
             for xid in xids:
-                mark_xid_as_desktop(xid, geometry=geometry)
-            if geometry is not None and attempt == 0:
-                time.sleep(0.5)
-                for xid in _xids_for_pid(pid) or xids:
-                    mark_xid_as_desktop(xid, geometry=geometry)
+                mark_xid_as_desktop(xid, geometry=geometry, full=True)
+            time.sleep(0.35)
+            for xid in _xids_for_pid(pid) or xids:
+                mark_xid_as_desktop(xid, geometry=geometry, full=True)
             return True
         time.sleep(delay)
     log.warning("Could not find X11 windows for pid %s", pid)
@@ -197,7 +291,13 @@ def _xids_for_wallpaper_titles() -> list[int]:
         out = subprocess.check_output(["wmctrl", "-l"], text=True, errors="replace")
     except (OSError, subprocess.CalledProcessError):
         return []
-    keys = ("wallpaperengine", "gnomepaper wallpaper", "linux-wallpaperengine")
+    keys = (
+        "wallpaperengine",
+        "gnomepaper wallpaper",
+        "linux-wallpaperengine",
+        "gnomepaper-wallpaper",
+        "wallpaper surface",
+    )
     found: list[int] = []
     for line in out.splitlines():
         low = line.lower()
@@ -218,7 +318,46 @@ def lower_pid_windows(
     *,
     geometry: tuple[int, int, int, int] | None = None,
 ) -> None:
-    """Keep wallpaper below apps and re-assert workarea (never fullscreen)."""
+    """Periodic light reassert — must never steal keyboard focus."""
     xids = _xids_for_pid(pid) or _xids_for_wallpaper_titles()
     for xid in xids:
-        mark_xid_as_desktop(xid, geometry=geometry)
+        mark_xid_as_desktop(xid, geometry=geometry, full=False)
+        _release_focus_if_wallpaper_active(xid)
+
+
+def _release_focus_if_wallpaper_active(xid: int) -> None:
+    """
+    If the wallpaper is the X11 active window it will eat keyboard input.
+    Release focus only in that case — never on every tick unconditionally.
+    """
+    if not shutil.which("xprop"):
+        return
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-root", "_NET_ACTIVE_WINDOW"],
+            text=True,
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return
+    import re
+
+    m = re.search(r"window id # (0x[0-9a-fA-F]+)", out)
+    if not m:
+        return
+    active = m.group(1).lower()
+    mine = hex(xid) if not str(xid).startswith("0x") else str(xid)
+    # normalize
+    try:
+        active_i = int(active, 16)
+    except ValueError:
+        return
+    if active_i != xid:
+        return
+    # Wallpaper stole focus — lower and drop X11 focus once
+    id_str = str(xid)
+    if shutil.which("xdotool"):
+        _run(["xdotool", "windowlower", id_str])
+        # Focus the root so Wayland apps can receive keys again
+        _run(["xdotool", "windowfocus", "root"])
+    log.debug("Released keyboard focus stolen by wallpaper %#x", xid)

@@ -23,33 +23,53 @@ def monitor_geometries() -> list[tuple[int, int, int, int]]:
 
     Uses the X11/XWayland workarea when available so the GNOME top bar
     (clock / control center) is never covered by scene/video surfaces.
+    Always enforces a minimum top inset — never returns y=0 full-height.
     """
     full = _from_xrandr()
     work = _from_net_workarea()
 
+    geos: list[tuple[int, int, int, int]] = []
     if full and work:
         geos = _intersect_monitors_with_workarea(full, work)
         if geos:
             log.info("Wallpaper geometry (workarea-safe): %s", geos)
-            return geos
+    if not geos and work:
+        geos = work
+        log.info("Wallpaper geometry (workarea only): %s", geos)
+    if not geos and full:
+        geos = _heuristic_panel_inset(full)
+        log.info("Wallpaper geometry (xrandr + panel inset): %s", geos)
+    if not geos:
+        geos = _from_gdk()
+        if geos:
+            log.info("Wallpaper geometry (Gdk): %s", geos)
+    if not geos:
+        log.warning("Falling back to default geometry")
+        geos = [(0, 32, 1920, 1048)]
 
-    if work:
-        log.info("Wallpaper geometry (workarea only): %s", work)
-        return work
+    # Final hard clamp — never cover the top panel band
+    return [_ensure_panel_gap(g, full) for g in geos]
 
-    if full:
-        # Heuristic inset if workarea unavailable (panel ~32–48 CSS px on HiDPI)
-        inset = _heuristic_panel_inset(full)
-        log.info("Wallpaper geometry (xrandr + panel inset): %s", inset)
-        return inset
 
-    geos = _from_gdk()
-    if geos:
-        log.info("Wallpaper geometry (Gdk): %s", geos)
-        return geos
-
-    log.warning("Falling back to default geometry")
-    return [(0, 32, 1920, 1048)]
+def _ensure_panel_gap(
+    geo: tuple[int, int, int, int],
+    full_monitors: list[tuple[int, int, int, int]] | None = None,
+) -> tuple[int, int, int, int]:
+    """Guarantee wallpaper does not start under the GNOME top bar."""
+    x, y, w, h = geo
+    min_top = 32
+    # If this rect matches a full monitor height from y=0, force inset
+    if full_monitors:
+        for fx, fy, fw, fh in full_monitors:
+            if abs(x - fx) < 4 and abs(w - fw) < 4 and abs(h - fh) < 8 and y <= fy + 4:
+                y = fy + min_top
+                h = max(1, fh - min_top)
+                return (x, y, w, h)
+    if y < min_top:
+        delta = min_top - y
+        y = min_top
+        h = max(1, h - delta)
+    return (x, y, w, h)
 
 
 def primary_geometry() -> tuple[int, int, int, int]:

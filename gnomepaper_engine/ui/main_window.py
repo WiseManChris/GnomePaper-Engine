@@ -504,12 +504,15 @@ class MainWindow(Adw.ApplicationWindow):
         play_group.append(
             self._switch_row(
                 "Mute audio",
-                "Silence wallpaper sound",
+                "Live — silences active wallpaper immediately",
                 self._mute_audio,
                 self._on_mute_switch,
             )
         )
-        vol_row = Adw.ActionRow(title="Volume", subtitle="When audio is not muted")
+        vol_row = Adw.ActionRow(
+            title="Volume",
+            subtitle="Live — adjusts active wallpaper immediately",
+        )
         self._volume_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         self._volume_scale.set_value(self._audio_volume)
         self._volume_scale.set_draw_value(True)
@@ -517,6 +520,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._volume_scale.set_size_request(140, -1)
         self._volume_scale.set_hexpand(True)
         self._volume_scale.set_sensitive(not self._mute_audio)
+        # Live while dragging (not only on release)
         self._volume_scale.connect("value-changed", self._on_volume_changed)
         vol_row.add_suffix(self._volume_scale)
         play_group.append(vol_row)

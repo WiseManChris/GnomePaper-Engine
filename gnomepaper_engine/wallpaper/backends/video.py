@@ -7,12 +7,16 @@ import os
 import signal
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 from gnomepaper_engine.config import AppConfig
 from gnomepaper_engine.steam.models import WallpaperItem, WallpaperType
 from gnomepaper_engine.wallpaper.backends.base import BackendResult, WallpaperBackend
+from gnomepaper_engine.wallpaper.focus_audio import FocusAudioGuard
 from gnomepaper_engine.wallpaper.gnome_bg import set_picture
+from gnomepaper_engine.wallpaper.process_audio import set_wallpaper_volume
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +30,10 @@ class VideoBackend(WallpaperBackend):
 
     def __init__(self) -> None:
         self._proc: subprocess.Popen[str] | None = None
+        self._focus_guard = FocusAudioGuard()
+        self._volume = 70
+        self._muted = False
+        self._volume_file: Path | None = None
 
     def supports(self, item: WallpaperItem) -> bool:
         if item.wallpaper_type == WallpaperType.VIDEO:
@@ -34,7 +42,6 @@ class VideoBackend(WallpaperBackend):
 
     def _find_video(self, item: WallpaperItem) -> Path | None:
         folder = item.path
-        # Prefer explicit file from project.json
         meta_file = item.meta.get("file")
         if isinstance(meta_file, str):
             candidate = folder / meta_file
@@ -62,7 +69,6 @@ class VideoBackend(WallpaperBackend):
 
         self.stop()
 
-        # Still frame for GNOME overview / lock / fallback under the live layer
         if item.preview_path and item.preview_path.is_file():
             set_picture(item.preview_path)
         else:
@@ -70,8 +76,12 @@ class VideoBackend(WallpaperBackend):
             if still is not None:
                 set_picture(still)
 
+        self._muted = bool(config.mute_audio)
+        self._volume = max(0, min(100, int(config.audio_volume)))
+        self._volume_file = config.cache_dir() / "desktop_player_volume"
+        self._write_volume_file()
+
         env = os.environ.copy()
-        # XWayland lets us use real DESKTOP window type under GNOME Wayland
         if env.get("WAYLAND_DISPLAY") and not env.get("GNOMEPAPER_FORCE_WAYLAND"):
             env.pop("WAYLAND_DISPLAY", None)
             env.pop("WAYLAND_SOCKET", None)
@@ -85,11 +95,13 @@ class VideoBackend(WallpaperBackend):
             "gnomepaper_engine.wallpaper.desktop_player",
             "--video",
             str(video),
+            "--volume-file",
+            str(self._volume_file),
         ]
-        if config.mute_audio:
+        if self._muted or self._volume <= 0:
             cmd.append("--mute")
         else:
-            vol = max(0.0, min(1.0, float(config.audio_volume) / 100.0))
+            vol = max(0.0, min(1.0, float(self._volume) / 100.0))
             cmd.extend(["--volume", f"{vol:.2f}"])
 
         log_path = config.cache_dir() / "desktop_player.log"
@@ -104,12 +116,10 @@ class VideoBackend(WallpaperBackend):
                 text=True,
                 start_new_session=True,
             )
-            # Parent no longer needs the handle; child keeps the fd
             log_f.close()
         except OSError as exc:
             return BackendResult(False, f"Failed to start desktop player: {exc}")
 
-        # Brief check for immediate crash
         try:
             code = self._proc.wait(timeout=0.6)
             err = ""
@@ -125,7 +135,63 @@ class VideoBackend(WallpaperBackend):
         except subprocess.TimeoutExpired:
             pass
 
+        self._start_audio_guard()
+        threading.Thread(target=self._deferred_volume, daemon=True).start()
         return BackendResult(True, f"Set desktop wallpaper: {item.title}")
+
+    def set_audio(self, *, volume: int, muted: bool) -> None:
+        self._volume = max(0, min(100, int(volume)))
+        self._muted = bool(muted)
+        self._write_volume_file()
+        pids = self._running_pids()
+        self._focus_guard.configure(
+            pids=pids,
+            volume=self._volume,
+            user_muted=self._muted,
+            enabled=True,
+        )
+        try:
+            self._focus_guard.notify_user_volume_change()
+        except Exception:
+            pass
+        n = set_wallpaper_volume(self._volume, muted=self._muted, pids=pids)
+        log.info("Video set_audio volume=%s muted=%s updated=%s", self._volume, self._muted, n)
+        self._focus_guard.apply_now()
+
+    def _write_volume_file(self) -> None:
+        if self._volume_file is None:
+            return
+        try:
+            # format: "muted|volume" e.g. "0|70" or "1|0"
+            self._volume_file.write_text(
+                f"{1 if self._muted else 0}|{self._volume}\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            log.debug("volume file write failed: %s", exc)
+
+    def _deferred_volume(self) -> None:
+        for wait in (0.5, 1.5, 3.0, 5.0):
+            time.sleep(wait)
+            if not self.is_running:
+                return
+            pids = self._running_pids()
+            set_wallpaper_volume(self._volume, muted=self._muted, pids=pids)
+
+    def _running_pids(self) -> list[int]:
+        if self._proc is None or self._proc.poll() is not None:
+            return []
+        return [self._proc.pid]
+
+    def _start_audio_guard(self) -> None:
+        pids = self._running_pids()
+        self._focus_guard.configure(
+            pids=pids,
+            volume=self._volume,
+            user_muted=self._muted,
+            enabled=True,
+        )
+        self._focus_guard.start()
 
     def _extract_still(self, video: Path, config: AppConfig) -> Path | None:
         import shutil
@@ -157,6 +223,7 @@ class VideoBackend(WallpaperBackend):
             return None
 
     def stop(self) -> None:
+        self._focus_guard.stop()
         if self._proc is None:
             return
         if self._proc.poll() is None:

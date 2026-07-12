@@ -269,16 +269,18 @@ class GnomePaperApplication(Adw.Application):
                 self.window.set_active_wallpaper(f"{item.title} (static preview)")
 
     def _on_mute_changed(self, muted: bool) -> None:
-        self.config.mute_audio = muted
-        self.config.save()
+        # Live: apply immediately while wallpaper is running
+        self.manager.set_audio(muted=muted)
         if self.window is not None:
-            self.window.show_message(
-                f"Audio {'muted' if muted else 'unmuted'}. Re-apply to take effect."
-            )
+            state = "muted" if muted else "unmuted"
+            if self.manager.is_running:
+                self.window.show_message(f"Audio {state}")
+            else:
+                self.window.show_message(f"Audio {state} (applies on next wallpaper)")
 
     def _on_volume_changed(self, volume: int) -> None:
-        self.config.audio_volume = max(0, min(100, volume))
-        self.config.save()
+        # Live: slider moves volume on the active wallpaper right away
+        self.manager.set_audio(volume=max(0, min(100, int(volume))))
 
     def _on_mouse_changed(self, enabled: bool) -> None:
         self.config.mouse_interaction = enabled

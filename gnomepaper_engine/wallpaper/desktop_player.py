@@ -21,6 +21,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--video", required=True, help="Path to video file")
     p.add_argument("--mute", action="store_true", default=False)
     p.add_argument("--volume", type=float, default=0.0, help="0.0–1.0")
+    p.add_argument(
+        "--volume-file",
+        default="",
+        help="Path to live volume control file (muted|0-100)",
+    )
     return p
 
 
@@ -33,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("Video not found: %s", video)
         return 1
 
-    # Force X11/XWayland for DESKTOP window type under GNOME
+    # Force X11/XWayland for wallpaper layer under GNOME
     if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE") == "wayland":
         os.environ.pop("WAYLAND_DISPLAY", None)
         os.environ.pop("WAYLAND_SOCKET", None)
@@ -56,7 +61,17 @@ def main(argv: list[str] | None = None) -> int:
     Gst.init(None)
 
     volume = 0.0 if args.mute else max(0.0, min(1.0, args.volume if args.volume > 0 else 0.5))
+    volume_file = args.volume_file.strip() or None
     geos = monitor_geometries()
+    # Never cover the GNOME top bar
+    safe_geos: list[tuple[int, int, int, int]] = []
+    for gx, gy, gw, gh in geos:
+        if gy < 28:
+            inset = 32 if gy == 0 else 32
+            gy = inset
+            gh = max(1, gh - inset)
+        safe_geos.append((gx, gy, gw, gh))
+    geos = safe_geos
     log.info("Using geometries: %s", geos)
 
     class MonitorWallpaper(Gtk.Window):
@@ -65,10 +80,11 @@ def main(argv: list[str] | None = None) -> int:
             app: Gtk.Application,
             rect: tuple[int, int, int, int],
             path: str,
+            initial_volume: float,
         ) -> None:
             super().__init__(type=Gtk.WindowType.TOPLEVEL)
             self.set_application(app)
-            self.set_title("GnomePaper Wallpaper")
+            self.set_title("GnomePaper Wallpaper Surface")
             self.set_decorated(False)
             self.set_resizable(True)
             self.set_keep_below(True)
@@ -76,14 +92,17 @@ def main(argv: list[str] | None = None) -> int:
             self.set_skip_pager_hint(True)
             self.set_accept_focus(False)
             self.set_focus_on_map(False)
+            self.set_can_focus(False)
             self.stick()
             # NORMAL (not DESKTOP): GNOME hides the top bar for DESKTOP/fullscreen
             self.set_type_hint(Gdk.WindowTypeHint.NORMAL)
             self.set_decorated(False)
+            # Hide from GNOME Dash / task list
+            try:
+                self.set_role("gnomepaper-wallpaper")
+            except Exception:
+                pass
 
-            # rect is X11/root pixels from xrandr. GTK may use a scale factor on
-            # XWayland, so we convert to logical units for GTK APIs and keep the
-            # physical rect only for wmctrl/xdotool.
             self._geo = rect  # physical (xrandr)
             x, y, w, h = rect
             self._scale = max(1, int(self.get_scale_factor()))
@@ -94,7 +113,6 @@ def main(argv: list[str] | None = None) -> int:
             self.move(lx, ly)
             self.set_default_size(lw, lh)
             self.resize(lw, lh)
-            # Exact full-screen coverage is enforced via X11 below.
 
             self._player = Gst.ElementFactory.make("playbin", None)
             if self._player is None:
@@ -102,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
 
             uri = Gst.filename_to_uri(path)
             self._player.set_property("uri", uri)
-            self._player.set_property("volume", volume)
+            self._player.set_property("volume", initial_volume)
 
             sink = Gst.ElementFactory.make("gtksink", None)
             if sink is None:
@@ -127,8 +145,8 @@ def main(argv: list[str] | None = None) -> int:
             self.connect("map-event", self._on_map)
             self.connect("delete-event", lambda *_: True)
 
-            GLib.timeout_add_seconds(1, self._reassert_layer)
-            GLib.timeout_add(500, self._fit_once)
+            GLib.timeout_add(500, self._reassert_layer)
+            GLib.timeout_add(400, self._fit_once)
             log.info("Video wallpaper surface %dx%d+%d+%d", w, h, x, y)
 
         def start(self) -> None:
@@ -138,14 +156,20 @@ def main(argv: list[str] | None = None) -> int:
         def stop(self) -> None:
             self._player.set_state(Gst.State.NULL)
 
+        def set_volume(self, vol: float) -> None:
+            vol = max(0.0, min(1.0, float(vol)))
+            try:
+                self._player.set_property("volume", vol)
+                self._player.set_property("mute", vol <= 0.0)
+            except Exception as exc:
+                log.debug("set_volume failed: %s", exc)
+
         def _fit_x11(self) -> None:
             gdk_win = self.get_window()
             if gdk_win is None:
                 return
             try:
                 xid = int(gdk_win.get_xid())
-                # Physical pixels only — do not call GTK resize with xrandr sizes
-                # (HiDPI would double them again).
                 mark_xid_as_desktop(xid, geometry=self._geo)
                 gdk_win.lower()
             except Exception as exc:
@@ -168,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
 
         def _fit_once(self) -> bool:
             self._fit_x11()
-            return False  # one-shot
+            return False
 
         def _reassert_layer(self) -> bool:
             self._fit_x11()
@@ -188,10 +212,13 @@ def main(argv: list[str] | None = None) -> int:
                 self._player.set_state(Gst.State.NULL)
 
     class DesktopApp(Gtk.Application):
-        def __init__(self, path: str) -> None:
+        def __init__(self, path: str, initial_volume: float, vfile: str | None) -> None:
             super().__init__(application_id="io.github.gnomepaper.DesktopPlayer")
             self._path = path
+            self._initial_volume = initial_volume
+            self._volume_file = vfile
             self._windows: list[MonitorWallpaper] = []
+            self._last_vol_text = ""
 
         def do_activate(self) -> None:  # noqa: N802
             if self._windows:
@@ -200,16 +227,47 @@ def main(argv: list[str] | None = None) -> int:
                 return
 
             for rect in geos:
-                win = MonitorWallpaper(self, rect, self._path)
+                win = MonitorWallpaper(self, rect, self._path, self._initial_volume)
                 self._windows.append(win)
                 win.start()
+
+            if self._volume_file:
+                GLib.timeout_add(250, self._poll_volume_file)
+
+        def _poll_volume_file(self) -> bool:
+            path = self._volume_file
+            if not path or not self._windows:
+                return False
+            try:
+                text = open(path, encoding="utf-8").read().strip()  # noqa: SIM115
+            except OSError:
+                return True
+            if text == self._last_vol_text:
+                return True
+            self._last_vol_text = text
+            muted = False
+            pct = 70
+            try:
+                if "|" in text:
+                    m_s, v_s = text.split("|", 1)
+                    muted = m_s.strip() in ("1", "true", "True")
+                    pct = int(float(v_s.strip()))
+                else:
+                    pct = int(float(text))
+            except ValueError:
+                return True
+            vol = 0.0 if muted else max(0.0, min(1.0, pct / 100.0))
+            log.info("Live volume from file: muted=%s pct=%s → %.2f", muted, pct, vol)
+            for w in self._windows:
+                w.set_volume(vol)
+            return True
 
         def do_shutdown(self) -> None:  # noqa: N802
             for w in self._windows:
                 w.stop()
             Gtk.Application.do_shutdown(self)
 
-    app = DesktopApp(video)
+    app = DesktopApp(video, volume, volume_file)
 
     def _handle_signal(signum: int, _frame: object) -> None:
         log.info("Signal %s — stopping desktop player", signum)

@@ -18,7 +18,9 @@ from gnomepaper_engine.wallpaper.backends.lwe import (
     install_hint,
 )
 from gnomepaper_engine.wallpaper.display_geometry import monitor_geometries
+from gnomepaper_engine.wallpaper.focus_audio import FocusAudioGuard
 from gnomepaper_engine.wallpaper.gnome_bg import set_picture
+from gnomepaper_engine.wallpaper.process_audio import set_wallpaper_volume
 from gnomepaper_engine.wallpaper.x11_desktop import lower_pid_windows, mark_window_by_pid
 
 log = logging.getLogger(__name__)
@@ -28,8 +30,9 @@ class SceneBackend(WallpaperBackend):
     """
     Renders Wallpaper Engine scenes using linux-wallpaperengine.
 
-    On GNOME (no wlr-layer-shell), LWE runs in window mode and we promote
-    those windows to a full-screen desktop layer via X11/EWMH (XWayland).
+    On GNOME (no wlr-layer-shell), LWE runs in window mode and we keep
+    those windows below apps, sized strictly to the workarea so the top
+    bar (clock / control center) stays visible.
     """
 
     name = "scene"
@@ -39,6 +42,9 @@ class SceneBackend(WallpaperBackend):
         self._geometries: list[tuple[int, int, int, int]] = []
         self._lower_stop = threading.Event()
         self._lower_thread: threading.Thread | None = None
+        self._focus_guard = FocusAudioGuard()
+        self._volume = 70
+        self._muted = False
 
     def supports(self, item: WallpaperItem) -> bool:
         if item.wallpaper_type == WallpaperType.SCENE:
@@ -66,30 +72,32 @@ class SceneBackend(WallpaperBackend):
 
         assets = find_assets_dir(config.steam_library_paths)
         geos = monitor_geometries()
+        # Hard safety: never start at y=0 full height (covers GNOME panel)
+        geos = [_safe_workarea_geo(g) for g in geos]
         self._geometries = geos
         env = self._x11_env()
 
+        self._muted = bool(config.mute_audio)
+        self._volume = max(0, min(100, int(config.audio_volume)))
+
         bg_arg = str(item.path)
         common: list[str] = [str(binary)]
-        if config.mute_audio:
+        if self._muted or self._volume <= 0:
             common.append("--silent")
         else:
-            vol = max(0, min(100, int(config.audio_volume)))
-            common.extend(["--volume", str(vol)])
-            # Keep audio when other apps play sound (WE-like default)
-            common.append("--noautomute")
+            # Engine volume = user volume (0–100). Live slider also drives Pulse.
+            common.extend(["--volume", str(self._volume)])
         common.extend(["--fps", str(max(15, min(60, config.target_fps)))])
-        # Mouse / eye-follow / parallax — do NOT pass --disable-mouse when enabled
-        if not config.mouse_interaction:
-            common.append("--disable-mouse")
-            common.append("--disable-parallax")
+        # Always disable mouse grab for wallpaper layer — LWE must never take
+        # keyboard/mouse control away from normal apps (typing, clicking).
+        common.append("--disable-mouse")
+        common.append("--disable-parallax")
         if assets is not None:
             common.extend(["--assets-dir", str(assets)])
 
-        # One LWE process per monitor, full-screen geometry from xrandr
         started: list[subprocess.Popen[str]] = []
         for x, y, w, h in geos:
-            # LWE --window is XxYxWxH (position + size)
+            # LWE --window is XxYxWxH (position + size) — MUST be workarea only
             cmd = [
                 *common,
                 "--window",
@@ -126,12 +134,10 @@ class SceneBackend(WallpaperBackend):
             )
 
         self._procs = alive
-        # Force full-screen + desktop layer (LWE often opens tiny until we resize)
         for idx, p in enumerate(self._procs):
             geo = geos[idx] if idx < len(geos) else geos[0]
             ok = mark_window_by_pid(p.pid, geometry=geo, retries=40, delay=0.25)
-            log.info("Desktop-layer promote pid=%s geo=%s ok=%s", p.pid, geo, ok)
-            # Extra delayed resize — GLFW sometimes reverts size once after map
+            log.info("Wallpaper-layer promote pid=%s geo=%s ok=%s", p.pid, geo, ok)
             threading.Thread(
                 target=self._delayed_fit,
                 args=(p.pid, geo),
@@ -139,10 +145,73 @@ class SceneBackend(WallpaperBackend):
             ).start()
 
         self._start_lower_loop()
+        self._start_audio_guard()
+        # Apply live volume after audio stream appears
+        threading.Thread(target=self._deferred_volume, daemon=True).start()
         return BackendResult(True, f"Scene wallpaper active: {item.title}")
 
+    def set_audio(self, *, volume: int, muted: bool) -> None:
+        """Live volume/mute while scene is running (Pulse + focus guard)."""
+        self._volume = max(0, min(100, int(volume)))
+        self._muted = bool(muted)
+        pids = self._running_pids()
+        self._focus_guard.configure(
+            pids=pids,
+            volume=self._volume,
+            user_muted=self._muted,
+            enabled=True,
+        )
+        try:
+            self._focus_guard.notify_user_volume_change()
+        except Exception:
+            pass
+        # Match LWE by stream name (PipeWire often omits process.id)
+        n = set_wallpaper_volume(self._volume, muted=self._muted, pids=pids)
+        log.info("Scene set_audio volume=%s muted=%s updated=%s", self._volume, self._muted, n)
+        # Apply immediately; focus guard only toggles mute, keeps volume level
+        self._focus_guard.apply_now()
+        # If Pulse has not registered the stream yet, keep retrying briefly
+        if n == 0:
+            threading.Thread(target=self._retry_volume, args=(8,), daemon=True).start()
+
+    def _retry_volume(self, attempts: int) -> None:
+        for i in range(attempts):
+            time.sleep(0.4)
+            if not self.is_running:
+                return
+            n = set_wallpaper_volume(
+                self._volume, muted=self._muted, pids=self._running_pids()
+            )
+            if n > 0:
+                log.info("Scene volume applied after retry %s", i + 1)
+                self._focus_guard.apply_now()
+                return
+
+    def _deferred_volume(self) -> None:
+        for wait in (0.4, 1.0, 2.0, 4.0, 7.0, 12.0):
+            time.sleep(wait)
+            if not self.is_running:
+                return
+            pids = self._running_pids()
+            n = set_wallpaper_volume(self._volume, muted=self._muted, pids=pids)
+            if n > 0:
+                self._focus_guard.apply_now()
+
+    def _running_pids(self) -> list[int]:
+        return [p.pid for p in self._procs if p.poll() is None]
+
+    def _start_audio_guard(self) -> None:
+        pids = self._running_pids()
+        self._focus_guard.configure(
+            pids=pids,
+            volume=self._volume,
+            user_muted=self._muted,
+            enabled=True,
+        )
+        self._focus_guard.start()
+
     def _delayed_fit(self, pid: int, geo: tuple[int, int, int, int]) -> None:
-        for wait in (1.0, 2.5, 5.0):
+        for wait in (0.8, 1.5, 2.5, 4.0, 7.0):
             time.sleep(wait)
             if not any(p.pid == pid and p.poll() is None for p in self._procs):
                 return
@@ -166,7 +235,7 @@ class SceneBackend(WallpaperBackend):
         self._lower_stop.clear()
 
         def _loop() -> None:
-            # Re-assert often — LWE/GLFW may re-enter fullscreen and hide the panel
+            # Light reassert only — never steals keyboard focus
             while not self._lower_stop.wait(1.0):
                 for idx, p in enumerate(list(self._procs)):
                     if p.poll() is None:
@@ -199,6 +268,7 @@ class SceneBackend(WallpaperBackend):
 
     def stop(self) -> None:
         self._lower_stop.set()
+        self._focus_guard.stop()
         self._kill_all()
         self._procs = []
         self._geometries = []
@@ -206,3 +276,17 @@ class SceneBackend(WallpaperBackend):
     @property
     def is_running(self) -> bool:
         return any(p.poll() is None for p in self._procs)
+
+
+def _safe_workarea_geo(geo: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """
+    Never allow a wallpaper rect that starts at y=0 with full display height.
+    GNOME top bar is typically 32–64 physical px on HiDPI.
+    """
+    x, y, w, h = geo
+    if y < 28:
+        # Force top inset so panel cannot be covered even if workarea failed
+        inset = max(32, 64 - y) if y == 0 else 32
+        y = inset
+        h = max(1, h - inset)
+    return (x, y, w, h)

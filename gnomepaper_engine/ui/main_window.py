@@ -59,6 +59,7 @@ class MainWindow(Adw.ApplicationWindow):
         steam_username: str = "",
         steam_linked: bool = False,
         steam_persona_name: str = "",
+        steam_id64: str = "",
         steam_avatar_path: str = "",
         prefer_steamcmd_download: bool = True,
         we_owned: bool = True,
@@ -96,6 +97,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._steam_username = steam_username
         self._steam_linked = steam_linked
         self._steam_persona = steam_persona_name
+        self._steam_id64 = steam_id64
         self._steam_avatar_path = steam_avatar_path
         self._prefer_steamcmd = prefer_steamcmd_download
         self._we_owned = we_owned
@@ -235,7 +237,7 @@ class MainWindow(Adw.ApplicationWindow):
             selection_mode=Gtk.SelectionMode.SINGLE,
             homogeneous=True,
             max_children_per_line=6,
-            min_children_per_line=2,
+            min_children_per_line=3,
             row_spacing=8,
             column_spacing=8,
             margin_start=10,
@@ -328,7 +330,7 @@ class MainWindow(Adw.ApplicationWindow):
             selection_mode=Gtk.SelectionMode.SINGLE,
             homogeneous=True,
             max_children_per_line=6,
-            min_children_per_line=2,
+            min_children_per_line=3,
             row_spacing=8,
             column_spacing=8,
             margin_start=10,
@@ -905,14 +907,17 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _load_steam_avatar_async(self) -> bool:
         username = self._steam_username
-        if not username:
+        sid = self._steam_id64
+        if not username and not sid:
             return GLib.SOURCE_REMOVE
 
         def worker() -> None:
-            profile = fetch_steam_profile(username)
+            profile = fetch_steam_profile(username, steam_id64=sid)
             if profile is None:
+                log.info("Could not load Steam profile for %s / %s", username, sid)
                 return
-            dest = avatar_cache_path(self._avatar_cache_dir, username)
+            key = profile.steam_id64 or username
+            dest = avatar_cache_path(self._avatar_cache_dir, key)
             path = None
             if profile.avatar_url:
                 path = cache_avatar(profile.avatar_url, dest)
@@ -931,12 +936,14 @@ class MainWindow(Adw.ApplicationWindow):
     ) -> bool:
         if persona:
             self._steam_persona = persona
+        if steam_id64:
+            self._steam_id64 = steam_id64
         if avatar_path:
             self._steam_avatar_path = avatar_path
         if self._on_steam_profile_changed is not None:
             self._on_steam_profile_changed(
                 self._steam_persona,
-                steam_id64,
+                self._steam_id64,
                 self._steam_avatar_path,
             )
         self._refresh_steam_chip()
@@ -1093,6 +1100,10 @@ class MainWindow(Adw.ApplicationWindow):
         assert isinstance(result, SteamCmdResult)
         if result.ok or result.linked:
             self._set_steam_linked(True)
+            # Force fresh profile (avatar + display name) after every successful link
+            self._steam_persona = ""
+            self._steam_avatar_path = ""
+            self._load_steam_avatar_async()
             self.show_message(result.message)
         else:
             self._set_steam_linked(False)

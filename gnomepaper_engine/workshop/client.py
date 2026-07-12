@@ -499,12 +499,15 @@ def link_steam_account(
     password: str,
     guard_code: str = "",
     progress: Callable[[str], None] | None = None,
+    store_password: bool = True,
 ) -> SteamCmdResult:
     """
-    Log into SteamCMD once so credentials are cached for future downloads.
+    Log into SteamCMD and keep credentials available for future downloads.
 
-    Password is not stored by GnomePaper — SteamCMD keeps its own encrypted
-    login token under the steamcmd data directory.
+    - SteamCMD keeps a local session under its data directory.
+    - We also store the password in the **GNOME Keyring** (via secret-tool) so
+      sessions that expire after ~20 minutes can be renewed silently without
+      prompting the user again.
     """
     username = username.strip()
     if not username or not password:
@@ -520,6 +523,7 @@ def link_steam_account(
         return SteamCmdResult(False, f"Could not install SteamCMD: {exc}")
 
     from gnomepaper_engine.config import AppConfig
+    from gnomepaper_engine.workshop.keyring import store_steam_password
 
     log_path = AppConfig.cache_dir() / "steamcmd_link.log"
     if progress:
@@ -543,29 +547,32 @@ def link_steam_account(
     if fail is not None:
         return fail
 
-    # SteamCMD prints "OK" / "Waiting for client config" on success
     lower = output.lower()
-    if "logged in" in lower or "ok" in lower or "waiting for user" in lower:
-        return SteamCmdResult(
-            True,
-            f"Linked Steam account “{username}”. Future downloads won’t need a password.",
-            linked=True,
-            log_tail=output[-400:],
-        )
-    # Some builds are quiet on success
-    if _code == 0 and "failed" not in lower:
-        return SteamCmdResult(
-            True,
-            f"Linked Steam account “{username}”.",
-            linked=True,
-            log_tail=output[-400:],
-        )
-    return SteamCmdResult(
-        False,
-        "Could not confirm Steam login. Check credentials / Steam Guard.",
-        needs_password=True,
-        log_tail=output[-600:],
+    success = (
+        "logged in" in lower
+        or "waiting for user" in lower
+        or (_code == 0 and "failed" not in lower and "error" not in lower)
+        or "ok" in lower
     )
+    if not success:
+        return SteamCmdResult(
+            False,
+            "Could not confirm Steam login. Check credentials / Steam Guard.",
+            needs_password=True,
+            log_tail=output[-600:],
+        )
+
+    stored = False
+    if store_password:
+        stored = store_steam_password(username, password)
+
+    msg = f"Linked Steam account “{username}”."
+    if stored:
+        msg += " Session will renew automatically via your system keyring."
+    else:
+        msg += " (Keyring unavailable — you may be asked to re-link occasionally.)"
+
+    return SteamCmdResult(True, msg, linked=True, log_tail=output[-400:])
 
 
 def download_via_steamcmd(
@@ -580,75 +587,88 @@ def download_via_steamcmd(
     """
     Download a workshop item with SteamCMD (account that owns Wallpaper Engine).
 
-    If ``use_cached_login`` and no password is given, SteamCMD uses its cached
-    login for ``username`` (from a previous successful link/download).
-
-    Note: Steam allows one login at a time — the desktop Steam client may
-    disconnect briefly while SteamCMD is logged in.
+    Auth order when password is empty:
+      1. SteamCMD cached session (``+login username``)
+      2. Password from GNOME Keyring (silent renew)
+      3. Fail with needs_password so the UI can re-link
     """
     username = username.strip()
     if not username:
         return SteamCmdResult(
             False,
-            "Steam username is required. Link your account in settings.",
+            "Steam username is required. Link your account (top-left).",
             needs_password=True,
         )
-    if not password and not use_cached_login:
-        return SteamCmdResult(
-            False,
-            "Steam password required (or link your account first).",
-            needs_password=True,
-        )
+
+    from gnomepaper_engine.config import AppConfig
+    from gnomepaper_engine.workshop.keyring import lookup_steam_password, store_steam_password
+
+    # Silent renew from keyring when session expires
+    if not password and use_cached_login:
+        password = lookup_steam_password(username) or ""
 
     try:
         cmd_bin = ensure_steamcmd()
     except Exception as exc:
         return SteamCmdResult(False, f"Could not install SteamCMD: {exc}")
 
-    # Isolated download root (avoid touching live Steam install while running)
-    from gnomepaper_engine.config import AppConfig
-
     dl_root = AppConfig.cache_dir() / "steamcmd_dl"
     dl_root.mkdir(parents=True, exist_ok=True)
     log_path = AppConfig.cache_dir() / "steamcmd_last.log"
 
-    if progress:
-        if password:
-            progress("Logging into SteamCMD…")
-        else:
-            progress("Using linked Steam account…")
+    def _attempt(login_args: list[str], label: str) -> tuple[int, str]:
+        if progress:
+            progress(label)
+        args: list[str] = [
+            str(cmd_bin),
+            "+@ShutdownOnFailedCommand",
+            "1",
+            "+@NoPromptForPassword",
+            "1",
+            "+force_install_dir",
+            str(dl_root),
+        ]
+        if guard_code.strip():
+            args += ["+set_steam_guard_code", guard_code.strip()]
+        args += login_args
+        args += [
+            "+workshop_download_item",
+            _APP_ID,
+            str(item_id),
+            "validate",
+            "+quit",
+        ]
+        return _run_steamcmd(
+            args, cwd=cmd_bin.parent, timeout=900, log_path=log_path
+        )
 
-    args: list[str] = [
-        str(cmd_bin),
-        "+@ShutdownOnFailedCommand",
-        "1",
-        "+@NoPromptForPassword",
-        "1",
-        "+force_install_dir",
-        str(dl_root),
-    ]
-    if guard_code.strip():
-        args += ["+set_steam_guard_code", guard_code.strip()]
-    # Cached login: +login username   |  Fresh login: +login username password
-    if password:
-        args += ["+login", username, password]
-    else:
-        args += ["+login", username]
-    args += [
-        "+workshop_download_item",
-        _APP_ID,
-        str(item_id),
-        "validate",
-        "+quit",
-    ]
-
-    _code, output = _run_steamcmd(
-        args, cwd=cmd_bin.parent, timeout=900, log_path=log_path
-    )
-
+    # 1) Try cached SteamCMD session (no password on CLI)
+    _code, output = _attempt(["+login", username], "Using linked Steam session…")
     fail = _login_failure(output)
+    used_password = False
+
+    # 2) If session expired, use keyring / provided password
+    if fail is not None and fail.needs_password:
+        if password:
+            _code, output = _attempt(
+                ["+login", username, password],
+                "Renewing Steam session…",
+            )
+            fail = _login_failure(output)
+            used_password = True
+        else:
+            return SteamCmdResult(
+                False,
+                "Steam session expired. Re-link your account (top-left) once.",
+                needs_password=True,
+                log_tail=output[-600:],
+            )
+
     if fail is not None:
         return fail
+
+    if used_password and password:
+        store_steam_password(username, password)
 
     lower = output.lower()
 

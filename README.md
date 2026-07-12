@@ -1,62 +1,104 @@
 # GnomePaper Engine
 
-**Wallpaper Engine for GNOME** — any GNOME-based Linux desktop.
+### Live wallpapers on GNOME. Your Steam library. Your desktop. Finally.
 
-Browse your Steam Wallpaper Engine library, search the Workshop, download wallpapers, and run them as live desktop backgrounds.
+**Version 1.1** · by [WiseManChris](https://github.com/WiseManChris)
 
-> **You must own [Wallpaper Engine](https://store.steampowered.com/app/431960/) on Steam.** This app does not bypass ownership.
+If you have ever stared at a beautiful Wallpaper Engine scene on Windows and thought *“why can’t GNOME feel like this?”* — this is the project for you.
+
+GnomePaper Engine brings your **Steam Wallpaper Engine** library to **any GNOME-based Linux desktop**: browse previews, search the Workshop, download wallpapers, and run them as real live backgrounds — with an interface that feels like it belongs on your system.
+
+> **You must own [Wallpaper Engine](https://store.steampowered.com/app/431960/) on Steam.**  
+> No cracks. No ownership bypass. If you bought it, you’re welcome here.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![GNOME](https://img.shields.io/badge/desktop-GNOME-purple.svg)](https://www.gnome.org/)
-
-**Author:** [WiseManChris](https://github.com/WiseManChris)
+[![Version 1.1](https://img.shields.io/badge/version-1.1.0-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
+[![GNOME](https://img.shields.io/badge/GNOME-any-purple.svg)](https://www.gnome.org/)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 ---
 
-## Install (recommended)
+## Install in one shot
 
-One script. Works on **Ubuntu / Debian, Fedora, Arch, openSUSE**, and other GNOME desktops.
+Works on **Ubuntu, Fedora, Arch, openSUSE, Pop!_OS, Zorin, elementary**, and other GNOME desktops.
 
 ```bash
 git clone https://github.com/WiseManChris/GnomePaper-Engine.git
 cd GnomePaper-Engine
 ./install.sh
-```
-
-Then start it:
-
-```bash
 gnomepaper-engine
 ```
 
-Or open **GnomePaper Engine** from your app menu.
+That is the whole install story. The script:
 
-The installer will:
-
-1. Install system libraries (GTK4, libadwaita, GStreamer, …) via your package manager  
-2. Create a private Python environment under `~/.local/share/gnomepaper-engine/`  
-3. Put `gnomepaper-engine` on your PATH (`~/.local/bin`)  
-4. Register a desktop entry for the app menu  
-
-### Uninstall
+1. Installs system libraries for **your** distro (apt / dnf / pacman / zypper)  
+2. Sets up a clean user environment under `~/.local/share/gnomepaper-engine/`  
+3. Puts `gnomepaper-engine` on your PATH  
+4. Adds an app-menu entry  
 
 ```bash
-./uninstall.sh
+./uninstall.sh    # when you want it gone
 ```
 
 ---
 
-## Before you start
+## What you need
 
-| Need | Why |
-|------|-----|
-| **GNOME** desktop | UI is GTK4 + libadwaita |
-| **Steam** | Finds workshop content |
-| **Wallpaper Engine** owned & installed | Required — no ownership bypass |
-| **linux-wallpaperengine** (optional) | Needed for **scene** wallpapers |
+| Requirement | Notes |
+|-------------|--------|
+| **GNOME** | Vanilla GNOME, or GNOME-based (libadwaita UI) |
+| **Steam** | Native or Flatpak |
+| **Wallpaper Engine** | Owned **and** installed on that Steam account |
+| **Scene player** (optional) | `./scripts/install_linux_wallpaperengine.sh` for scene wallpapers |
 
-Scene support (optional):
+---
+
+## Features — the full tour
+
+### Library that feels like home
+- Grid of your installed workshop wallpapers with **real previews** (jpg/gif)  
+- Search and filters: All · Video · Scene · Web  
+- Detail pane with preview, metadata, tags  
+- One-click **Apply** / **Stop**  
+
+### Workshop without the Windows detour
+- Search trending, popular, recent, or any query  
+- **Three-column** browse grid for faster scrolling  
+- **Direct download** via SteamCMD (no Subscribe click when linked)  
+- Or open Steam’s Subscribe page as a fallback  
+- Downloads land in the normal Steam workshop folder  
+
+### Live wallpapers on the real desktop
+- **Video** wallpapers: full-screen desktop surface (GStreamer), not a floating player  
+- **Scene** wallpapers: powered by [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)  
+- Surfaces respect the **GNOME top bar** (clock & control center stay visible)  
+- Audio, volume, FPS, mouse-effect toggles  
+
+### Steam, linked like a native app
+- **Link Steam** chip in the **top-left** of the window  
+- After linking: **profile avatar + display name**  
+- Password lives in your **GNOME Keyring** (not in a config file)  
+- Sessions auto-renew so you are not re-linking every twenty minutes  
+
+### Session & settings
+- Keep running in the **background** when you close the window  
+- **Launch at login**  
+- **Restore last wallpaper** on start  
+- `gnomepaper-engine --background` for silent start  
+
+Open **☰ → Settings** anytime.
+
+---
+
+## Quick start after install
+
+1. Own & install Wallpaper Engine on Steam  
+2. Run `gnomepaper-engine`  
+3. Click **Link Steam** (top-left) once — account that owns WE  
+4. Browse **Installed** or **Workshop**  
+5. **Apply** a wallpaper and enjoy  
+
+For **scenes**:
 
 ```bash
 ./scripts/install_linux_wallpaperengine.sh
@@ -64,67 +106,48 @@ Scene support (optional):
 
 ---
 
-## Features
+## How it works (for the curious)
 
-- Installed library with workshop **previews**
-- **Workshop** search & download (SteamCMD or Subscribe)
-- **Video** wallpapers (desktop surface)
-- **Scene** wallpapers (via linux-wallpaperengine)
-- Steam **Link** (top-left) with profile avatar — password never stored by the app
-- **Settings**: background mode, launch at login, restore last wallpaper
+| Piece | Role |
+|-------|------|
+| **GTK4 + libadwaita** | Native GNOME UI |
+| **Steam paths** | Finds `steamapps/workshop/content/431960` (native & Flatpak) |
+| **SteamCMD** | Direct workshop downloads for accounts that own WE |
+| **GNOME Keyring** | Secure password storage for silent session renew |
+| **GStreamer** | Video desktop surfaces |
+| **linux-wallpaperengine** | Scene rendering |
+| **X11 workarea** | Keeps wallpapers below the GNOME shell panel |
 
-### Settings (☰ → Settings)
+---
 
-| Option | Effect |
-|--------|--------|
-| Keep running in background | Close hides the window; wallpaper keeps playing |
-| Start minimized | Launch into the background |
-| Launch at login | Starts with your session |
-| Restore last wallpaper | Re-applies last wallpaper on start |
+## Project layout
 
-```bash
-gnomepaper-engine --background   # start hidden
+```
+install.sh / uninstall.sh     ← one-command install for any GNOME distro
+gnomepaper_engine/
+  app.py · config.py · autostart.py · tray.py
+  steam/       # discovery, ownership, library
+  workshop/    # search, SteamCMD, keyring, profile
+  wallpaper/   # video + scene backends (panel-safe geometry)
+  ui/          # main window, settings, cards
+scripts/
+  install_linux_wallpaperengine.sh
+  install_steamcmd.sh
 ```
 
 ---
 
-## Workshop downloads
+## Changelog
 
-1. **Link Steam** (top-left) — account that owns Wallpaper Engine  
-2. **Workshop** tab → search → **Download**  
-3. Later downloads reuse the linked session (no password every time)  
+### 1.1.0
+- Permanent Steam link via **GNOME Keyring** (no re-auth every ~20 minutes)  
+- Profile **avatar + persona name** on the top-left chip  
+- Workshop grid defaults to **3 columns**  
+- Scene/video surfaces use **workarea** so the GNOME top bar never disappears  
+- Clearer multi-distro install story  
 
-Files land in `steamapps/workshop/content/431960/`.
-
----
-
-## Manual install (advanced)
-
-Only if you prefer not to use `./install.sh`:
-
-```bash
-# 1) System packages — pick your distro
-# Debian/Ubuntu:
-sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
-  gstreamer1.0-plugins-good ffmpeg xdotool wmctrl
-
-# Fedora:
-sudo dnf install python3-gobject gtk4 libadwaita gstreamer1-plugins-good ffmpeg xdotool wmctrl
-
-# Arch:
-sudo pacman -S python-gobject gtk4 libadwaita gst-plugins-good ffmpeg xdotool wmctrl
-
-# 2) App (user install)
-python3 -m venv --system-site-packages ~/.local/share/gnomepaper-engine/venv
-~/.local/share/gnomepaper-engine/venv/bin/pip install .
-# then wrap/link the console script into ~/.local/bin as install.sh does
-```
-
----
-
-## Config
-
-`~/.config/gnomepaper-engine/config.json`
+### 1.0.0
+- First public release  
 
 ---
 
@@ -132,6 +155,12 @@ python3 -m venv --system-site-packages ~/.local/share/gnomepaper-engine/venv
 
 MIT — see [LICENSE](LICENSE).
 
-Copyright © 2026 WiseManChris.
+Copyright © 2026 **WiseManChris**.
 
-Wallpaper Engine is © Kristjan Skutta / Wallpaper Engine. This project is unofficial and not affiliated with Valve or Wallpaper Engine.
+Wallpaper Engine is © Kristjan Skutta / Wallpaper Engine.  
+This project is **unofficial** and not affiliated with Valve or Wallpaper Engine.
+
+---
+
+Built with care for people who live on GNOME and refuse to give up their wallpapers.
+EOF

@@ -14,9 +14,9 @@ from gi.repository import Gdk, GdkPixbuf  # noqa: E402
 
 log = logging.getLogger(__name__)
 
-# Grid cell target size (CSS-ish; scaled by loaders)
-THUMB_W = 280
-THUMB_H = 158
+# Grid cell size — tuned for ~3 tiles across on typical windows
+THUMB_W = 240
+THUMB_H = 135
 # Right-pane detail preview — compact so settings stay reachable
 DETAIL_W = 300
 DETAIL_H = 168

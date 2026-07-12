@@ -62,6 +62,7 @@ class GnomePaperApplication(Adw.Application):
                 steam_username=self.config.steam_username,
                 steam_linked=self.config.steam_linked,
                 steam_persona_name=self.config.steam_persona_name,
+                steam_id64=self.config.steam_id64,
                 steam_avatar_path=self.config.steam_avatar_path,
                 prefer_steamcmd_download=self.config.prefer_steamcmd_download,
                 we_owned=wallpaper_engine_owned(self.config.steam_library_paths),

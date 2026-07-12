@@ -44,7 +44,7 @@ install_system_deps() {
         gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
         gstreamer1.0-plugins-bad gstreamer1.0-libav \
         x11-utils wmctrl xdotool ffmpeg curl tar \
-        gir1.2-ayatanaappindicator3-0.1 || true
+        libsecret-tools gir1.2-ayatanaappindicator3-0.1 || true
       ;;
     dnf)
       sudo dnf install -y --skip-broken \
@@ -53,7 +53,7 @@ install_system_deps() {
         gstreamer1-plugins-base gstreamer1-plugins-good \
         gstreamer1-plugins-bad-free \
         xprop wmctrl xdotool ffmpeg curl tar \
-        libayatana-appindicator-gtk3 || true
+        libsecret libayatana-appindicator-gtk3 || true
       ;;
     pacman)
       sudo pacman -Sy --needed --noconfirm \
@@ -61,14 +61,14 @@ install_system_deps() {
         gtk4 libadwaita gtk3 \
         gst-plugins-base gst-plugins-good gst-plugins-bad \
         xorg-xprop wmctrl xdotool ffmpeg curl tar \
-        libayatana-appindicator || true
+        libsecret libayatana-appindicator || true
       ;;
     zypper)
       sudo zypper --non-interactive install \
         python3 python3-pip python3-gobject \
         gtk4 libadwaita-1-0 typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 \
         gstreamer-plugins-base gstreamer-plugins-good \
-        xprop wmctrl xdotool ffmpeg curl tar || true
+        xprop wmctrl xdotool ffmpeg curl tar libsecret-tools || true
       ;;
     *)
       red "Unknown package manager. Install these, then re-run this script:"

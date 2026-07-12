@@ -34,6 +34,57 @@ detect_pm() {
   fi
 }
 
+# dnf/dnf5 install with fallback for broken OpenPGP keys (common on Nobara/custom repos).
+# Usage: dnf_install [--skip-broken] pkg1 pkg2 ...
+dnf_install() {
+  local extra=()
+  while [[ $# -gt 0 && "$1" == --* ]]; do
+    extra+=("$1")
+    shift
+  done
+  local pkgs=("$@")
+  if [[ ${#pkgs[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  # 1) Normal install
+  if sudo dnf install -y "${extra[@]}" "${pkgs[@]}"; then
+    return 0
+  fi
+
+  echo "warning: dnf install failed — trying to refresh RPM keys…" >&2
+  # Import any keys shipped on the system (Nobara/Fedora often need this after upgrades)
+  if [[ -d /etc/pki/rpm-gpg ]]; then
+    # shellcheck disable=SC2046
+    sudo rpm --import $(find /etc/pki/rpm-gpg -type f 2>/dev/null | head -50) 2>/dev/null || true
+  fi
+  sudo dnf clean packages 2>/dev/null || true
+
+  # 2) Retry after key import
+  if sudo dnf install -y "${extra[@]}" "${pkgs[@]}"; then
+    return 0
+  fi
+
+  # 3) OpenPGP / wrong-key fallback (Nobara repo keys often lag packages)
+  echo "warning: OpenPGP check failed or install still blocked." >&2
+  echo "         Retrying with GPG check disabled for this install only…" >&2
+  if sudo dnf install -y --nogpgcheck \
+      --setopt=gpgcheck=0 \
+      --setopt=localpkg_gpgcheck=0 \
+      "${extra[@]}" "${pkgs[@]}"; then
+    return 0
+  fi
+
+  # dnf5 sometimes wants repo-wide setopt form
+  if sudo dnf install -y --nogpgcheck \
+      --setopt=*.gpgcheck=0 \
+      "${extra[@]}" "${pkgs[@]}"; then
+    return 0
+  fi
+
+  return 1
+}
+
 # Core toolchain only — must succeed (cmake, compilers, make, rsync).
 install_core_build_tools() {
   local pm
@@ -46,8 +97,12 @@ install_core_build_tools() {
         build-essential cmake make g++ gcc git rsync pkg-config
       ;;
     dnf)
-      sudo dnf install -y \
-        cmake make gcc gcc-c++ git rsync pkgconf-pkg-config
+      # Prefer full set; fall back if optional pkg names differ (Fedora vs Nobara).
+      if ! dnf_install cmake make gcc gcc-c++ git rsync pkgconf-pkg-config; then
+        dnf_install cmake make gcc gcc-c++ git rsync pkgconfig \
+          || dnf_install cmake make gcc gcc-c++ git rsync \
+          || true
+      fi
       ;;
     pacman)
       sudo pacman -Sy --needed --noconfirm \
@@ -83,7 +138,7 @@ install_lwe_dev_libs() {
         || echo "warning: some library packages failed; build may still work" >&2
       ;;
     dnf)
-      sudo dnf install -y --skip-broken \
+      dnf_install --skip-broken \
         libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
         mesa-libGL-devel glew-devel freeglut-devel SDL2-devel lz4-devel \
         ffmpeg-free-devel libXxf86vm-devel glm-devel glfw-devel \

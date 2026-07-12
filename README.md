@@ -2,7 +2,7 @@
 
 ### Live wallpapers on GNOME. Your Steam library. Your desktop. Finally.
 
-**Version 1.1.2** · by [WiseManChris](https://github.com/WiseManChris)
+**Version 1.1.3** · by [WiseManChris](https://github.com/WiseManChris)
 
 If you have ever stared at a beautiful Wallpaper Engine scene on Windows and thought *“why can’t GNOME feel like this?”* — this is the project for you.
 
@@ -29,12 +29,17 @@ cd GnomePaper-Engine
 gnomepaper-engine
 ```
 
-That is the whole install story. The script:
+That is the whole app install story. The script:
 
 1. Installs system libraries for **your** distro (apt / dnf / pacman / zypper)  
 2. Sets up a clean user environment under `~/.local/share/gnomepaper-engine/`  
 3. Puts `gnomepaper-engine` on your PATH  
 4. Adds an app-menu entry  
+5. Remembers the source path so **Settings → Install scene engine** can find the LWE build script  
+
+For **live scene** wallpapers, do one more step after first launch:  
+**☰ → Settings → Scene engine → Install scene engine**  
+(see [Scene engine](#scene-engine-linux-wallpaperengine) below).
 
 ```bash
 ./uninstall.sh    # when you want it gone
@@ -136,21 +141,6 @@ cp data/io.github.gnomepaper.Engine.desktop ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 ```
 
-### 3. Scene wallpapers (optional)
-
-Scenes need [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine).
-
-**Easiest:** open GnomePaper → **☰ → Settings → Scene engine → Install scene engine**.  
-GnomePaper auto-detects the binary (path + SHA-256 checksum) when the build finishes.
-
-Or build from a terminal:
-
-```bash
-./scripts/install_linux_wallpaperengine.sh
-```
-
-Put the binary on your `PATH` (or at `~/.local/bin/linux-wallpaperengine`), then use **Re-detect** in Settings.
-
 ### Manual uninstall
 
 ```bash
@@ -163,6 +153,80 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 
 ---
 
+## Scene engine (linux-wallpaperengine)
+
+**Video** wallpapers work out of the box. **Scene** wallpapers need Almamu’s [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) CLI — that is **not** the Steam “Wallpaper Engine” app by itself.
+
+### Install from Settings (recommended)
+
+After GnomePaper is installed:
+
+1. Open **☰ → Settings**
+2. Scroll to **Scene engine**
+3. Click **Install scene engine**
+
+That opens a terminal running the built-in installer (`scripts/install_linux_wallpaperengine.sh`). Approve any **sudo** prompts for build dependencies, wait for the compile (it can take several minutes), then either:
+
+- Wait — GnomePaper **polls and auto-detects** when the binary appears, or  
+- Click **Re-detect** when the terminal says it’s done  
+
+The installer installs to:
+
+| Path | Role |
+|------|------|
+| `~/.local/share/linux-wallpaperengine/` | Binary + runtime files |
+| `~/.local/bin/linux-wallpaperengine` | Symlink on your PATH |
+| `…/linux-wallpaperengine.sha256` | Side-car checksum written by the installer |
+
+### Auto-detect & checksum
+
+GnomePaper does not only look for a filename. It:
+
+1. Scans **PATH**, `~/.local/bin`, `~/.local/share/linux-wallpaperengine`, common system paths, and a local repo build tree  
+2. Computes a **SHA-256** of the binary  
+3. Runs a quick **CLI identity probe** (`--help` markers) so a random file with the same name is rejected  
+4. Caches the last good **path + checksum** in config for faster, reliable re-checks  
+
+Settings shows status like:
+
+- **Found & verified** · path · `sha256:649866e96fda…`  
+- **Not found** — use **Install scene engine** or set a custom path  
+
+**Re-detect** forces a full rescan (ignores a stale cache).  
+**Custom binary path** lets you point at a hand-built binary; if that path breaks, GnomePaper falls back to auto-detect.
+
+### Install from a terminal
+
+If you prefer the shell (or Settings can’t find the script):
+
+```bash
+cd GnomePaper-Engine   # your clone
+./scripts/install_linux_wallpaperengine.sh
+```
+
+What the script does:
+
+1. Installs **build dependencies** for your distro (apt / dnf / pacman / zypper)  
+2. Clones or updates [Almamu/linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine) under `third_party/`  
+3. Configures **CMake** (Release) and builds  
+4. Installs the output into `~/.local/share/linux-wallpaperengine/` and links `~/.local/bin/linux-wallpaperengine`  
+5. Prints the **SHA-256** and writes `linux-wallpaperengine.sha256` next to the binary  
+
+Then open GnomePaper → **Settings → Scene engine → Re-detect** (or apply a scene and it will detect on its own).
+
+### Already built it yourself?
+
+Put the binary somewhere GnomePaper looks:
+
+- `~/.local/bin/linux-wallpaperengine`  
+- `~/.local/share/linux-wallpaperengine/linux-wallpaperengine`  
+- anywhere on your `PATH`  
+- or set **Custom binary path** in Settings  
+
+Then **Re-detect**.
+
+---
+
 ## What you need
 
 | Requirement | Notes |
@@ -170,7 +234,7 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 | **GNOME** | Vanilla GNOME, or GNOME-based (libadwaita UI) |
 | **Steam** | Native or Flatpak |
 | **Wallpaper Engine** | Owned **and** installed on that Steam account |
-| **Scene player** (optional) | Settings → **Install scene engine**, or `./scripts/install_linux_wallpaperengine.sh` |
+| **Scene player** (optional) | **Settings → Install scene engine**, or `./scripts/install_linux_wallpaperengine.sh` |
 
 ---
 
@@ -195,6 +259,14 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 - Surfaces stay in the **workarea** — GNOME top bar (clock & control center) stays visible  
 - Audio, volume, FPS, mouse-effect toggles  
 
+### Scene engine installer (built into the app)
+- **Settings → Scene engine → Install scene engine** — one-click path for new users  
+- **Re-detect** after a manual or terminal install  
+- **SHA-256 checksum** + CLI identity verification  
+- Cached detection so the app doesn’t “lose” a working binary between launches  
+- Optional **custom binary path** when you install LWE yourself  
+- Terminal installer script still available: `./scripts/install_linux_wallpaperengine.sh`  
+
 ### Steam, linked like a native app
 - **Link Steam** chip in the **top-left** of the window  
 - After linking: **profile avatar + display name**  
@@ -207,7 +279,7 @@ rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
 - **Restore last wallpaper** on start  
 - **Appearance**: System / Light / Dark / Pitch black (OLED)  
 - **Accent colors**: Blue · Teal · Purple · Orange  
-- **Scene engine**: auto-detect with SHA-256 checksum, **Re-detect**, and **Install scene engine**  
+- **Scene engine** group: status, install, re-detect, custom path  
 - `gnomepaper-engine --background` for silent start  
 
 Open **☰ → Settings** anytime.
@@ -219,14 +291,17 @@ Open **☰ → Settings** anytime.
 1. Own & install Wallpaper Engine on Steam  
 2. Run `gnomepaper-engine`  
 3. Click **Link Steam** (top-left) once — account that owns WE  
-4. Browse **Installed** or **Workshop**  
-5. **Apply** a wallpaper and enjoy  
+4. For **scene** wallpapers: **☰ → Settings → Scene engine → Install scene engine** (one time)  
+5. Browse **Installed** or **Workshop**  
+6. **Apply** a wallpaper and enjoy  
 
-For **scenes**: Settings → **Install scene engine**, or:
+Terminal alternative for step 4:
 
 ```bash
 ./scripts/install_linux_wallpaperengine.sh
 ```
+
+Then **Re-detect** in Settings if the status still says not found.
 
 ---
 
@@ -238,12 +313,23 @@ For **scenes**: Settings → **Install scene engine**, or:
 | **Steam paths** | Finds `steamapps/workshop/content/431960` (native & Flatpak) |
 | **SteamCMD + Keyring** | Direct workshop downloads for accounts that own WE |
 | **GStreamer** | Video desktop surfaces |
-| **linux-wallpaperengine** | Scene rendering |
+| **linux-wallpaperengine** | Scene rendering (Almamu CLI) |
+| **Scene engine detect** | PATH / known paths + SHA-256 + CLI identity; config cache |
+| **In-app installer** | Settings launches `scripts/install_linux_wallpaperengine.sh` in a terminal |
 | **X11 workarea + below** | Wallpapers under apps, never covering the shell panel |
 
 ---
 
 ## Changelog
+
+### 1.1.3
+- **Settings → Scene engine**: status, **Re-detect**, and **Install scene engine**  
+- **Auto-detect** linux-wallpaperengine across PATH and known install locations  
+- **SHA-256 checksum** cache so detection stays reliable between launches  
+- **CLI identity probe** so a random binary with the same name is rejected  
+- **Custom binary path** with fallback to full auto-detect if the path is broken  
+- Installer writes **`linux-wallpaperengine.sha256`** and prints the checksum  
+- In-app install opens a terminal (so sudo prompts work) and polls until the binary is found  
 
 ### 1.1.2
 - **Remove wallpapers** from your installed library (local workshop folder, with confirm)  

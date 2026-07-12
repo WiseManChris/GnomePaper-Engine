@@ -99,7 +99,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(about)
         note = Adw.ActionRow(
             title="GnomePaper Engine 1.0",
-            subtitle="Wallpaper Engine for GNOME — requires owning WE on Steam",
+            subtitle="Any GNOME desktop · by WiseManChris · requires owning WE on Steam",
         )
         about.add(note)
 

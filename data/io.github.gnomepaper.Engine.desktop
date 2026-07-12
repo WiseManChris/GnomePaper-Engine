@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=GnomePaper Engine
 GenericName=Wallpaper Engine for GNOME
-Comment=Run Steam Wallpaper Engine wallpapers on GNOME
+Comment=Steam Wallpaper Engine wallpapers on any GNOME desktop
 Exec=gnomepaper-engine
 Icon=preferences-desktop-wallpaper
 Terminal=false

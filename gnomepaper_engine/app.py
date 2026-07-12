@@ -335,11 +335,11 @@ class GnomePaperApplication(Adw.Application):
         about = Adw.AboutDialog(
             application_name=__app_name__,
             application_icon="preferences-desktop-wallpaper",
-            developer_name="GnomePaper Engine contributors",
+            developer_name="WiseManChris",
             version=__version__,
             comments=(
-                "Bring Steam Wallpaper Engine wallpapers to GNOME desktops "
-                "with a native Adwaita experience. Requires owning Wallpaper Engine on Steam."
+                "Wallpaper Engine for any GNOME desktop. "
+                "Requires owning Wallpaper Engine on Steam."
             ),
             license_type=Gtk.License.MIT_X11,
             website="https://github.com/WiseManChris/GnomePaper-Engine",

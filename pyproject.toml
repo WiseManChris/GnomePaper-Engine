@@ -9,7 +9,7 @@ description = "Wallpaper Engine for GNOME — Steam workshop library, video & sc
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "GnomePaper Engine contributors" }]
+authors = [{ name = "WiseManChris" }]
 keywords = ["gnome", "wallpaper", "steam", "wallpaper-engine", "linux"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -20,8 +20,8 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Desktop Environment :: Gnome",
 ]
-# System packages (Fedora/Nobara): python3-gobject gtk4 libadwaita
-# Optional: mpv, xprop, wmctrl, xdotool; SteamCMD for workshop direct download
+# UI depends on system packages (any GNOME distro): PyGObject, GTK4, libadwaita
+# Install with: ./install.sh
 dependencies = []
 
 [project.urls]

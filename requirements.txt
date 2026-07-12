@@ -1,9 +1,6 @@
-# Python packaging only. Desktop UI uses system PyGObject/GTK.
+# GnomePaper Engine uses system PyGObject/GTK (not pip packages).
 #
-# Fedora / Nobara:
-#   sudo dnf install python3-gobject gtk4 libadwaita
-# Optional video backend:
-#   sudo dnf install mpv
+# Preferred install for all GNOME distros:
+#   ./install.sh
 #
-# Install this project in editable mode:
-#   pip install -e .
+# That script installs OS packages + a user-local venv.

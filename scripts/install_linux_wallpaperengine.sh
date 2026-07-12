@@ -17,17 +17,46 @@ if ! command -v git >/dev/null; then
   exit 1
 fi
 
-# Build dependencies (Fedora / Nobara)
+echo "==> Installing build dependencies (sudo)…"
 if command -v dnf >/dev/null; then
-  echo "==> Installing build dependencies (sudo)…"
   sudo dnf install -y \
-    gcc gcc-c++ cmake make \
+    gcc gcc-c++ cmake make git rsync \
     libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
     mesa-libGL-devel glew-devel freeglut-devel SDL2-devel lz4-devel \
     ffmpeg-free-devel libXxf86vm-devel glm-devel glfw-devel \
     mpv mpv-devel pulseaudio-libs-devel fftw-devel gmp-devel \
     zlib-devel libpng-devel freetype-devel wayland-devel \
-    wayland-protocols-devel libxkbcommon-devel dbus-devel git rsync || true
+    wayland-protocols-devel libxkbcommon-devel dbus-devel || true
+elif command -v apt-get >/dev/null; then
+  sudo apt-get update -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    build-essential cmake git rsync \
+    libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+    libgl-dev libglew-dev freeglut3-dev libsdl2-dev liblz4-dev \
+    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev \
+    libxxf86vm-dev libglm-dev libglfw3-dev \
+    libmpv-dev mpv libpulse-dev libfftw3-dev \
+    zlib1g-dev libpng-dev libfreetype-dev \
+    libwayland-dev wayland-protocols libxkbcommon-dev libdbus-1-dev || true
+elif command -v pacman >/dev/null; then
+  sudo pacman -Sy --needed --noconfirm \
+    base-devel cmake git rsync \
+    libxrandr libxinerama libxcursor libxi \
+    mesa glew freeglut sdl2 lz4 ffmpeg glm glfw-x11 \
+    mpv libpulse fftw zlib libpng freetype2 \
+    wayland wayland-protocols libxkbcommon dbus || true
+elif command -v zypper >/dev/null; then
+  sudo zypper --non-interactive install -t pattern devel_C_C++ || true
+  sudo zypper --non-interactive install \
+    cmake git rsync gcc-c++ \
+    libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel \
+    Mesa-libGL-devel glew-devel freeglut-devel libSDL2-devel liblz4-devel \
+    ffmpeg-5-libavcodec-devel glm-devel glfw-devel \
+    mpv-devel libpulse-devel fftw3-devel \
+    zlib-devel libpng-devel freetype2-devel \
+    wayland-devel wayland-protocols-devel libxkbcommon-devel dbus-1-devel || true
+else
+  echo "Install build tools + OpenGL/FFmpeg/mpv/Wayland dev packages for your distro, then re-run." >&2
 fi
 
 if [[ ! -d "${SRC}/.git" ]]; then

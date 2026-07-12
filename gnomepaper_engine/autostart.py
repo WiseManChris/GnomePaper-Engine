@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 
@@ -23,11 +24,13 @@ def is_autostart_enabled() -> bool:
 
 
 def _resolve_exec() -> str:
-    """Prefer installed console script, else python -m."""
+    """Prefer user installer launcher, then PATH, then module."""
+    home_bin = Path.home() / ".local" / "bin" / "gnomepaper-engine"
+    if home_bin.is_file() and os.access(home_bin, os.X_OK):
+        return f"{home_bin} --background"
     which = shutil.which("gnomepaper-engine")
     if which:
         return f"{which} --background"
-    # Fallback: module launch
     return "python3 -m gnomepaper_engine --background"
 
 

@@ -1,146 +1,137 @@
-# 🐧 GnomePaper Engine
+# GnomePaper Engine
 
-**Version 1.0** — Your Steam Wallpaper Engine collection, brought to GNOME.
+**Wallpaper Engine for GNOME** — any GNOME-based Linux desktop.
 
-Hey everyone! 👋 I built GnomePaper Engine because I really wanted a seamless way to use my Steam Wallpaper Engine collection right on my GNOME desktop. This app lets you browse your Steam library, search the Workshop, download new wallpapers, and run them as awesome live backgrounds. It works flawlessly whether you're using Wayland or X11 (via XWayland).
+Browse your Steam Wallpaper Engine library, search the Workshop, download wallpapers, and run them as live desktop backgrounds.
 
-> **Just a quick heads-up:** You absolutely **need to own [Wallpaper Engine](https://store.steampowered.com/app/431960/) on Steam** for this to work. I wanted to respect the original developers, so this app does not bypass Steam ownership checks.
+> **You must own [Wallpaper Engine](https://store.steampowered.com/app/431960/) on Steam.** This app does not bypass ownership.
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
-![GNOME](https://img.shields.io/badge/desktop-GNOME-purple.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![GNOME](https://img.shields.io/badge/desktop-GNOME-purple.svg)](https://www.gnome.org/)
 
-## ✨ What makes it cool
-
-- **Browse your collection:** See all the wallpapers you've already installed, complete with Workshop preview images.
-- **Find new favorites:** Search the Workshop and download new wallpapers straight from the app.
-- **Video & Scene Wallpapers:** Play video backgrounds smoothly (using GStreamer), and run full interactive scene wallpapers (powered by [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine)).
-- **Easy Steam Login:** Link your account with one click. And don't worry—your password is never stored or seen by the app.
-- **Set it and forget it:** You can set it to run silently in the background, launch automatically when you log in, and remember your last used wallpaper.
-- **Looks right at home:** Built from the ground up with native GTK4 and libadwaita so it matches your beautiful GNOME desktop perfectly.
+**Author:** [WiseManChris](https://github.com/WiseManChris)
 
 ---
 
-## 🚀 Getting Started
+## Install (recommended)
 
-GnomePaper Engine works on practically any GNOME setup, provided your system has a few under-the-hood tools installed to handle the video and window management.
+One script. Works on **Ubuntu / Debian, Fedora, Arch, openSUSE**, and other GNOME desktops.
 
-### 1. Install the required tools
-
-**For Fedora / Nobara users:**
 ```bash
-sudo dnf install python3-gobject gtk4 libadwaita gtk3 \
-  gstreamer1-plugins-base gstreamer1-plugins-good gstreamer1-plugins-bad-free \
-  xprop wmctrl xdotool ffmpeg \
-  libayatana-appindicator-gtk3   # optional (gives you a system tray icon)
+git clone https://github.com/WiseManChris/GnomePaper-Engine.git
+cd GnomePaper-Engine
+./install.sh
 ```
 
-**For Ubuntu / Debian-based distros:**
+Then start it:
+
 ```bash
-sudo apt update && sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-  x11-utils wmctrl xdotool ffmpeg \
-  gir1.2-ayatanaappindicator3-0.1   # optional (gives you a system tray icon)
+gnomepaper-engine
 ```
 
-**For Arch Linux users:**
+Or open **GnomePaper Engine** from your app menu.
+
+The installer will:
+
+1. Install system libraries (GTK4, libadwaita, GStreamer, …) via your package manager  
+2. Create a private Python environment under `~/.local/share/gnomepaper-engine/`  
+3. Put `gnomepaper-engine` on your PATH (`~/.local/bin`)  
+4. Register a desktop entry for the app menu  
+
+### Uninstall
+
 ```bash
-sudo pacman -S python-gobject gtk4 libadwaita gtk3 \
-  gst-plugins-base gst-plugins-good gst-plugins-bad \
-  xorg-xprop wmctrl xdotool ffmpeg \
-  libayatana-appindicator           # optional (gives you a system tray icon)
+./uninstall.sh
 ```
 
-### 2. Set Up Steam
+---
 
-1. Make sure you have the regular Linux [Steam](https://store.steampowered.com/) client installed.
-2. Make sure you actually own and install **Wallpaper Engine** (AppID `431960`) through Steam.
-3. *(Optional but highly recommended)* If you want to use the complex "scene" wallpapers, you can run my included helper script to set that up automatically:
+## Before you start
+
+| Need | Why |
+|------|-----|
+| **GNOME** desktop | UI is GTK4 + libadwaita |
+| **Steam** | Finds workshop content |
+| **Wallpaper Engine** owned & installed | Required — no ownership bypass |
+| **linux-wallpaperengine** (optional) | Needed for **scene** wallpapers |
+
+Scene support (optional):
 
 ```bash
 ./scripts/install_linux_wallpaperengine.sh
 ```
 
-### 3. Install and Run!
+---
 
-Just clone the code and install it locally using pip:
+## Features
+
+- Installed library with workshop **previews**
+- **Workshop** search & download (SteamCMD or Subscribe)
+- **Video** wallpapers (desktop surface)
+- **Scene** wallpapers (via linux-wallpaperengine)
+- Steam **Link** (top-left) with profile avatar — password never stored by the app
+- **Settings**: background mode, launch at login, restore last wallpaper
+
+### Settings (☰ → Settings)
+
+| Option | Effect |
+|--------|--------|
+| Keep running in background | Close hides the window; wallpaper keeps playing |
+| Start minimized | Launch into the background |
+| Launch at login | Starts with your session |
+| Restore last wallpaper | Re-applies last wallpaper on start |
 
 ```bash
-git clone https://github.com/WiseManChris/GnomePaper-Engine.git
-cd GnomePaper-Engine
-pip install --user -e .
-gnomepaper-engine
+gnomepaper-engine --background   # start hidden
 ```
 
-If you just want to test it out without officially installing it, you can run it directly from the folder:
+---
+
+## Workshop downloads
+
+1. **Link Steam** (top-left) — account that owns Wallpaper Engine  
+2. **Workshop** tab → search → **Download**  
+3. Later downloads reuse the linked session (no password every time)  
+
+Files land in `steamapps/workshop/content/431960/`.
+
+---
+
+## Manual install (advanced)
+
+Only if you prefer not to use `./install.sh`:
 
 ```bash
-python3 -m gnomepaper_engine
+# 1) System packages — pick your distro
+# Debian/Ubuntu:
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 \
+  gstreamer1.0-plugins-good ffmpeg xdotool wmctrl
+
+# Fedora:
+sudo dnf install python3-gobject gtk4 libadwaita gstreamer1-plugins-good ffmpeg xdotool wmctrl
+
+# Arch:
+sudo pacman -S python-gobject gtk4 libadwaita gst-plugins-good ffmpeg xdotool wmctrl
+
+# 2) App (user install)
+python3 -m venv --system-site-packages ~/.local/share/gnomepaper-engine/venv
+~/.local/share/gnomepaper-engine/venv/bin/pip install .
+# then wrap/link the console script into ~/.local/bin as install.sh does
 ```
 
 ---
 
-## ⚙️ Background Mode & Startup
+## Config
 
-Want your wallpaper to keep playing while the app window is closed? Just run it in background mode:
-
-```bash
-gnomepaper-engine --background
-```
-
-You can easily tweak how the app behaves by opening the **☰ menu → Settings** inside the app:
-
-| Setting | What it does |
-|---------|--------|
-| **Keep running in background** | Closes the main window, but your wallpaper keeps playing seamlessly. |
-| **Start minimized** | Launches straight to the background without popping up a window. |
-| **Launch at login** | Automatically fires up the app as soon as you boot your PC. |
-| **Restore last wallpaper** | Remembers what you were using last and reapplies it on startup. |
-
-*Tip: If you use an AppIndicator extension on GNOME, you'll also get a neat little system tray icon to control things quickly.*
+`~/.config/gnomepaper-engine/config.json`
 
 ---
 
-## 🖼️ Finding and Installing Wallpapers
+## License
 
-1. Click **Link Steam** in the top-left of the app.
-2. Jump over to the **Workshop** tab and search for whatever fits your current vibe.
-3. Hit **Download**. The app uses SteamCMD to handle the heavy lifting and will remember your login for next time.
-4. Your new wallpapers are safely downloaded to your default Steam folder at `steamapps/workshop/content/431960/`.
+MIT — see [LICENSE](LICENSE).
 
-*If the native download acts up for any reason, you can always use the **Subscribe** fallback button.*
+Copyright © 2026 WiseManChris.
 
----
-
-## 🏗️ How It's Built
-
-Curious about how I put this together? For the fellow developers out there, here is a quick look at how the project is organized:
-
-```text
-gnomepaper_engine/
-  app.py                 # The main app, background mode, and restore logic
-  config.py              # Handles saving your user settings
-  autostart.py           # The magic that makes it launch at login
-  tray.py                # System tray icon stuff (optional)
-  steam/                 # Talks to Steam to check your library and ownership
-  workshop/              # Handles Workshop searches and downloads
-  wallpaper/             # The engine for video and scene playback
-  ui/                    # All the GTK4 user interface code
-data/
-  io.github.gnomepaper.Engine.desktop
-scripts/
-  install_linux_wallpaperengine.sh
-  install_steamcmd.sh
-```
-
-**Where are my settings?**
-Everything you change in the app is safely saved to a simple JSON file right here: `~/.config/gnomepaper-engine/config.json`
-
----
-
-## 📝 License & Disclaimer
-
-Released under the MIT License — see the [LICENSE](LICENSE) file for the legal stuff.
-
-*Wallpaper Engine is © Kristjan Skutta / Wallpaper Engine. This project is entirely unofficial, made by a fan for the Linux community, and is not affiliated with Valve or Wallpaper Engine in any way.*
-
+Wallpaper Engine is © Kristjan Skutta / Wallpaper Engine. This project is unofficial and not affiliated with Valve or Wallpaper Engine.

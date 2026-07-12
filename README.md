@@ -42,6 +42,116 @@ That is the whole install story. The script:
 
 ---
 
+## Manual install (no scripts)
+
+Prefer to install everything yourself? Same result — no `install.sh` required.
+
+### 1. System packages
+
+Pick your distro. You need **Python 3.11+**, **PyGObject**, **GTK4**, **libadwaita**, **GStreamer**, plus helpers for wallpaper surfaces (`xprop`, `wmctrl`, `xdotool`) and downloads (`ffmpeg`, `curl`).
+
+**Debian / Ubuntu / Pop!_OS / Zorin / elementary**
+
+```bash
+sudo apt update
+sudo apt install -y \
+  python3 python3-pip python3-venv python3-gi python3-gi-cairo \
+  gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtk-3.0 \
+  libgtk-4-1 libadwaita-1-0 \
+  gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav \
+  x11-utils wmctrl xdotool ffmpeg curl tar \
+  libsecret-tools gir1.2-ayatanaappindicator3-0.1
+```
+
+**Fedora / Nobara / RHEL-like**
+
+```bash
+sudo dnf install -y \
+  python3 python3-pip python3-gobject \
+  gtk4 libadwaita gtk3 \
+  gstreamer1-plugins-base gstreamer1-plugins-good \
+  gstreamer1-plugins-bad-free \
+  xprop wmctrl xdotool ffmpeg curl tar \
+  libsecret libayatana-appindicator-gtk3
+```
+
+**Arch / Endeavour / Manjaro**
+
+```bash
+sudo pacman -S --needed \
+  python python-pip python-gobject \
+  gtk4 libadwaita gtk3 \
+  gst-plugins-base gst-plugins-good gst-plugins-bad \
+  xorg-xprop wmctrl xdotool ffmpeg curl tar \
+  libsecret libayatana-appindicator
+```
+
+**openSUSE**
+
+```bash
+sudo zypper install \
+  python3 python3-pip python3-gobject \
+  gtk4 libadwaita-1-0 typelib-1_0-Gtk-4_0 typelib-1_0-Adw-1 \
+  gstreamer-plugins-base gstreamer-plugins-good \
+  xprop wmctrl xdotool ffmpeg curl tar libsecret-tools
+```
+
+### 2. Install the app (user-local)
+
+GTK bindings come from the system packages above — use a venv with **`--system-site-packages`** so Python can import them.
+
+```bash
+git clone https://github.com/WiseManChris/GnomePaper-Engine.git
+cd GnomePaper-Engine
+
+python3 -m venv --system-site-packages ~/.local/share/gnomepaper-engine/venv
+source ~/.local/share/gnomepaper-engine/venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install .
+
+# Launcher on PATH
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/gnomepaper-engine <<'EOF'
+#!/usr/bin/env bash
+exec "$HOME/.local/share/gnomepaper-engine/venv/bin/gnomepaper-engine" "$@"
+EOF
+chmod +x ~/.local/bin/gnomepaper-engine
+```
+
+Ensure `~/.local/bin` is on your `PATH` (log out/in or add it in your shell config), then run:
+
+```bash
+gnomepaper-engine
+```
+
+Optional app menu entry:
+
+```bash
+mkdir -p ~/.local/share/applications
+cp data/io.github.gnomepaper.Engine.desktop ~/.local/share/applications/
+# Point Exec at your launcher if needed:
+#   sed -i "s|^Exec=.*|Exec=$HOME/.local/bin/gnomepaper-engine|" \
+#     ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
+update-desktop-database ~/.local/share/applications 2>/dev/null || true
+```
+
+### 3. Scene wallpapers (optional)
+
+Scenes need [linux-wallpaperengine](https://github.com/Almamu/linux-wallpaperengine). Build it from that project’s docs, put the binary on your `PATH` (or at `~/.local/bin/linux-wallpaperengine`), then restart GnomePaper.
+
+### Manual uninstall
+
+```bash
+rm -f ~/.local/bin/gnomepaper-engine
+rm -rf ~/.local/share/gnomepaper-engine
+rm -f ~/.local/share/applications/io.github.gnomepaper.Engine.desktop
+# optional config/cache:
+# rm -rf ~/.config/gnomepaper-engine ~/.cache/gnomepaper-engine
+```
+
+---
+
 ## What you need
 
 | Requirement | Notes |

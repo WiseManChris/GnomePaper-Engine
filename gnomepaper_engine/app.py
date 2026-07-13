@@ -319,7 +319,11 @@ class GnomePaperApplication(Adw.Application):
         self.config.save()
 
     def _on_steam_username_changed(self, username: str) -> None:
-        self.config.steam_username = username.strip()
+        new = username.strip()
+        # Same account (case/whitespace only) — do not wipe a working link
+        if new == (self.config.steam_username or "").strip():
+            return
+        self.config.steam_username = new
         if self.config.steam_linked:
             self.config.steam_linked = False
             self.config.steam_persona_name = ""

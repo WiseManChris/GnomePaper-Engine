@@ -266,6 +266,13 @@ Then **Re-detect**.
 - Cached detection so the app doesn’t “lose” a working binary between launches  
 - Optional **custom binary path** when you install LWE yourself  
 - Terminal installer script still available: `./scripts/install_linux_wallpaperengine.sh`  
+- Installer **hard-requires** freeglut (**GLUT**), **MPV/libmpv**, and **FFmpeg** (the three deps that most often break CMake on Nobara/Fedora)  
+
+### Steam link (Workshop downloads)
+- Link **once per PC** (top-left chip); password lives in **GNOME Keyring**  
+- Downloads prefer a **cached SteamCMD session**, then the keyring password (avoids Guard spam)  
+- **Only one GnomePaper** should run SteamCMD at a time — concurrent windows/PCs fighting the same account caused endless re-login prompts  
+- A file lock serializes SteamCMD so two local windows cannot corrupt the session 
 
 ### Steam, linked like a native app
 - **Link Steam** chip in the **top-left** of the window  

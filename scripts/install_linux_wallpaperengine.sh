@@ -353,16 +353,23 @@ verify_and_fix() {
     fail "PulseAudio"; missing=1
   fi
 
-  # FFmpeg (any of the core libs)
-  if pkg-config --exists libavcodec 2>/dev/null \
-    || find_header /usr/include/libavcodec/avcodec.h \
-                   /usr/include/ffmpeg/libavcodec/avcodec.h; then
-    ok "FFmpeg"
+  # FFmpeg — required by LWE CMake (FindFFMPEG), same class as MPV
+  if have_ffmpeg; then
+    ok "FFmpeg (libavcodec headers)"
   else
-    warn "FFmpeg headers not detected (build may still find them)"
+    fail "FFmpeg (libavcodec) headers"
+    missing=1
   fi
 
   return "$missing"
+}
+
+have_ffmpeg() {
+  pkg-config --exists libavcodec 2>/dev/null \
+    || find_header \
+         /usr/include/libavcodec/avcodec.h \
+         /usr/include/ffmpeg/libavcodec/avcodec.h \
+         /usr/include/x86_64-linux-gnu/libavcodec/avcodec.h
 }
 
 have_glut() {
@@ -433,6 +440,24 @@ repair_missing_deps() {
       pkg-config --exists libpulse 2>/dev/null || dnf_install_packages pulseaudio-libs-devel || true
       find_header /usr/include/ft2build.h /usr/include/freetype2/ft2build.h \
         || dnf_install_packages freetype-devel || true
+      # FFmpeg (critical for LWE CMake FindFFMPEG)
+      if ! have_ffmpeg; then
+        bold "    Installing FFmpeg development packages (required)…"
+        dnf_install_packages ffmpeg ffmpeg-free-devel \
+          || dnf_install_packages ffmpeg-devel \
+          || dnf_install_packages \
+               libavcodec-free-devel libavformat-free-devel \
+               libavutil-free-devel libswscale-free-devel \
+          || true
+        if ! have_ffmpeg; then
+          warn "Trying direct RPM install for FFmpeg devel…"
+          dnf_rpm_force ffmpeg-free-devel \
+            || dnf_rpm_force ffmpeg-devel \
+            || dnf_rpm_force libavcodec-free-devel libavformat-free-devel \
+                 libavutil-free-devel libswscale-free-devel \
+            || true
+        fi
+      fi
       # Ensure pkg-config can see /usr/lib64/pkgconfig (FindMPV uses it)
       dnf_install_packages pkgconf-pkg-config pkgconfig 2>/dev/null || true
       ;;
@@ -443,6 +468,12 @@ repair_missing_deps() {
       if ! have_mpv; then
         bold "    Installing libmpv-dev (required for MPV)…"
         apt_install_packages libmpv-dev mpv || true
+      fi
+      if ! have_ffmpeg; then
+        bold "    Installing FFmpeg dev packages (required)…"
+        apt_install_packages \
+          libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev \
+          || true
       fi
       command -v cmake >/dev/null || apt_install_packages cmake build-essential || true
       find_header /usr/include/GL/glew.h || apt_install_packages libglew-dev || true
@@ -456,6 +487,9 @@ repair_missing_deps() {
       if ! have_mpv; then
         pacman_install_packages mpv || true
       fi
+      if ! have_ffmpeg; then
+        pacman_install_packages ffmpeg || true
+      fi
       ;;
     zypper)
       if ! have_glut; then
@@ -463,6 +497,9 @@ repair_missing_deps() {
       fi
       if ! have_mpv; then
         zypper_install_packages mpv-devel || true
+      fi
+      if ! have_ffmpeg; then
+        zypper_install_packages ffmpeg-5-libavcodec-devel || true
       fi
       ;;
   esac
@@ -522,6 +559,36 @@ require_mpv_or_die() {
       ;;
     zypper)
       echo "    sudo zypper install mpv-devel"
+      ;;
+  esac
+  echo
+  exit 1
+}
+
+require_ffmpeg_or_die() {
+  if have_ffmpeg; then
+    ok "FFmpeg ready for CMake"
+    return 0
+  fi
+  echo
+  fail "FFmpeg (libavcodec) is still missing after package install."
+  echo
+  echo "  CMake needs FFmpeg development headers (same class of dep as MPV)."
+  echo "  Try this manually, then re-run the installer:"
+  echo
+  case "${PM}" in
+    dnf)
+      echo "    sudo dnf install -y --nogpgcheck ffmpeg-free-devel"
+      echo "    # or: sudo dnf install -y --nogpgcheck ffmpeg-devel"
+      ;;
+    apt)
+      echo "    sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-dev"
+      ;;
+    pacman)
+      echo "    sudo pacman -S ffmpeg"
+      ;;
+    zypper)
+      echo "    sudo zypper install ffmpeg-5-libavcodec-devel"
       ;;
   esac
   echo
@@ -727,6 +794,7 @@ main() {
   fi
   require_glut_or_die
   require_mpv_or_die
+  require_ffmpeg_or_die
 
   # 4) Build
   prepare_source

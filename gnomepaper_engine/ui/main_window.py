@@ -1137,14 +1137,14 @@ class MainWindow(Adw.ApplicationWindow):
                 result = link_steam_account(
                     username=username, password=password, guard_code=guard
                 )
-                GLib.idle_add(self._on_link_finished, result)
+                GLib.idle_add(self._on_link_finished, result, bool(guard))
 
             threading.Thread(target=worker, name="steam-link", daemon=True).start()
 
         dialog.connect("response", on_response)
         dialog.present(self)
 
-    def _on_link_finished(self, result: object) -> bool:
+    def _on_link_finished(self, result: object, had_guard: bool = False) -> bool:
         from gnomepaper_engine.workshop.client import SteamCmdResult
 
         assert isinstance(result, SteamCmdResult)
@@ -1156,10 +1156,16 @@ class MainWindow(Adw.ApplicationWindow):
             self._load_steam_avatar_async()
             self.show_message(result.message)
         else:
-            self._set_steam_linked(False)
+            # Keep previous linked state unless auth is clearly invalid —
+            # rate limits / concurrent SteamCMD must not wipe a good link.
+            if result.needs_password and not result.rate_limited:
+                self._set_steam_linked(False)
             self.show_message(result.message, error=True)
-            if result.needs_guard or result.needs_password:
+            # Re-prompt only for Guard (once) — not an infinite password loop
+            if result.needs_guard and not had_guard:
                 self._prompt_link_steam()
+            elif getattr(result, "rate_limited", False):
+                pass  # user must wait; do not pop another dialog
         return GLib.SOURCE_REMOVE
 
     def _prompt_steamcmd_download(
@@ -1267,7 +1273,9 @@ class MainWindow(Adw.ApplicationWindow):
                 username=username,
                 password=password,
                 guard_code=guard,
-                use_cached_login=not bool(password),
+                # Always try the local SteamCMD session first, then keyring password.
+                # Re-sending the password every time fights multi-PC / multi-window use.
+                use_cached_login=True,
                 progress=prog,
             )
             GLib.idle_add(self._on_steamcmd_finished, item.id, item.title, result)
@@ -1283,6 +1291,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._ws_install_btn.set_sensitive(True)
         if result.linked:
             self._set_steam_linked(True)
+        if getattr(result, "rate_limited", False):
+            self._ws_install_btn.set_label("Download")
+            self.show_message(result.message, error=True)
+            return GLib.SOURCE_REMOVE
         if result.needs_guard:
             self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
@@ -1294,8 +1306,21 @@ class MainWindow(Adw.ApplicationWindow):
             self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
             item = self._ws_selected
-            if item is not None and item.id == item_id:
+            # Only open password dialog if keyring is empty — avoid re-auth loops
+            from gnomepaper_engine.workshop.keyring import lookup_steam_password
+
+            has_saved = bool(
+                self._steam_username and lookup_steam_password(self._steam_username)
+            )
+            if item is not None and item.id == item_id and not has_saved:
                 self._prompt_steamcmd_download(item, guard_only=False)
+            elif has_saved:
+                self.show_message(
+                    result.message
+                    + " If this keeps happening, close other GnomePaper windows "
+                    "and re-link once (top-left).",
+                    error=True,
+                )
             return GLib.SOURCE_REMOVE
 
         if not result.ok:

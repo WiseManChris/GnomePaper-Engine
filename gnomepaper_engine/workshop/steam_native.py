@@ -112,12 +112,23 @@ def _run_worker(
             continue
 
     if payload is None:
-        err = (proc.stderr or proc.stdout or "").strip()[-600:]
+        err = (proc.stderr or proc.stdout or "").strip()[-800:]
+        # Common: worker crashed before JSON (missing deps, gevent, etc.)
+        hint = ""
+        if "No module named" in err or "ModuleNotFoundError" in err:
+            hint = " Re-run ./install.sh so steam[client] is installed."
         return {
             "ok": False,
-            "message": f"Steam worker failed (exit {proc.returncode}). {err}",
+            "message": f"Steam worker failed (exit {proc.returncode}).{hint} {err}",
             "needs_password": True,
         }
+    # Always log eresult for debugging password/"InvalidPassword" cases
+    if not payload.get("ok"):
+        log.warning(
+            "steam worker error: %s eresult=%s",
+            payload.get("message"),
+            payload.get("eresult"),
+        )
     return payload
 
 

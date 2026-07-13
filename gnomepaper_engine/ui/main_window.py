@@ -1124,7 +1124,10 @@ class MainWindow(Adw.ApplicationWindow):
             text=prefill_user or self._steam_username,
             hexpand=True,
         )
-        user_entry.set_placeholder_text("Steam account name (not display name)")
+        user_entry.set_placeholder_text("Account name / login — NOT display name")
+        user_entry.set_tooltip_text(
+            "Steam login name (e.g. insanespider365), not profile name (e.g. Wise_Man_Chris)"
+        )
         user_row.append(user_entry)
         box.append(user_row)
 
@@ -1184,8 +1187,9 @@ class MainWindow(Adw.ApplicationWindow):
         injector = steam_injector_warning()
         body = (
             f"Sign in once with the account that owns Wallpaper Engine{persona_hint}.\n"
-            "After this, Workshop Download is seamless — no Subscribe, no SteamCMD.\n"
-            "Username is pre-filled when desktop Steam is detected."
+            "Use your Steam login name (account name), not the profile display name.\n"
+            "After this, Download is seamless — no Subscribe click.\n"
+            "If Steam Guard is on, you will be asked for a code next."
         )
         if injector:
             body += (
@@ -1238,6 +1242,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_message("Linking Steam…")
 
             def worker() -> None:
+                # First try without Guard; if Steam wants 2FA we open Guard dialog
                 result = link_steam_account(
                     username=username, password=password, guard_code=""
                 )

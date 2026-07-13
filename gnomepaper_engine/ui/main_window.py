@@ -1030,22 +1030,30 @@ class MainWindow(Adw.ApplicationWindow):
             self._prompt_steamcmd_download(item)
             return
 
-        if self._steam_username and (
-            self._steam_linked
-            or self._has_native_session(self._steam_username)
-        ):
-            self._run_native_download(item, self._steam_username, password="", guard="")
+        if self._has_native_session(self._steam_username):
+            self._run_native_download(
+                item, self._steam_username or "", password="", guard=""
+            )
             return
 
-        # Not linked yet — one Link dialog, then download
+        # Not linked yet — QR link, then download
         self._prompt_link_steam_for_download(item)
 
     def _has_native_session(self, username: str) -> bool:
         try:
-            from gnomepaper_engine.workshop.steam_native import lookup_login_key
+            from gnomepaper_engine.workshop.steam_native import (
+                has_seamless_session,
+                lookup_login_key,
+            )
             from gnomepaper_engine.workshop.keyring import lookup_steam_password
 
-            return bool(lookup_login_key(username) or lookup_steam_password(username))
+            if has_seamless_session():
+                return True
+            if username and (
+                lookup_login_key(username) or lookup_steam_password(username)
+            ):
+                return True
+            return bool(self._steam_linked and username)
         except Exception:
             return False
 
@@ -1167,42 +1175,185 @@ class MainWindow(Adw.ApplicationWindow):
         return box, user_entry, pass_entry, guard_entry
 
     def _prompt_link_steam(self) -> None:
-        """Simple one-time link: auto-detect Steam username, password, optional Guard."""
+        """Primary: live Steam Mobile QR. Optional password is a secondary path."""
+        self._prompt_link_steam_qr()
+
+    def _prompt_link_steam_qr(self) -> None:
+        """Show a live QR code; user scans with Steam Mobile Guard."""
+        from gi.repository import GdkPixbuf  # type: ignore
+
+        from gnomepaper_engine.workshop.steam_qr_auth import (
+            begin_qr_session,
+            challenge_url_to_png_bytes,
+            wait_for_qr_approval,
+        )
+
+        dialog = Adw.AlertDialog(
+            heading="Link Steam with QR",
+            body=(
+                "1. Open Steam Mobile → Steam Guard\n"
+                "2. Tap Scan QR code\n"
+                "3. Point at this code and approve\n\n"
+                "No password typing. After this, Download is seamless."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("password", "Use password instead")
+        dialog.add_response("reset", "Reset session")
+        dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box.set_margin_top(8)
+        box.set_halign(Gtk.Align.CENTER)
+
+        qr_image = Gtk.Image()
+        qr_image.set_pixel_size(280)
+        qr_image.set_halign(Gtk.Align.CENTER)
+        box.append(qr_image)
+
+        status = Gtk.Label(
+            label="Starting Steam QR session…",
+            wrap=True,
+            justify=Gtk.Justification.CENTER,
+        )
+        status.add_css_class("dim-label")
+        box.append(status)
+
+        spinner = Gtk.Spinner()
+        spinner.start()
+        box.append(spinner)
+
+        dialog.set_extra_child(box)
+
+        cancel_flag = {"cancel": False}
+        self._qr_cancel_flag = cancel_flag
+
+        def on_response(_d: Adw.AlertDialog, response: str) -> None:
+            cancel_flag["cancel"] = True
+            if response == "password":
+                GLib.idle_add(self._prompt_link_steam_password)
+                return
+            if response == "reset":
+                from gnomepaper_engine.workshop.client import reset_steamcmd_session
+                from gnomepaper_engine.workshop.steam_native import reset_native_session
+
+                self.show_message(
+                    reset_native_session(self._steam_username)
+                    + " "
+                    + reset_steamcmd_session()
+                )
+                GLib.idle_add(self._prompt_link_steam_qr)
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
+
+        def worker() -> None:
+            try:
+                session = begin_qr_session("GnomePaper Engine")
+            except Exception as exc:
+                GLib.idle_add(
+                    self._on_qr_link_failed,
+                    f"Could not start Steam QR session: {exc}",
+                )
+                return
+
+            try:
+                png = challenge_url_to_png_bytes(session.challenge_url)
+
+                def show_qr() -> bool:
+                    try:
+                        loader = GdkPixbuf.PixbufLoader.new_with_type("png")
+                        loader.write(png)
+                        loader.close()
+                        pixbuf = loader.get_pixbuf()
+                        if pixbuf is not None:
+                            qr_image.set_from_pixbuf(pixbuf)
+                        status.set_label(
+                            "Scan with Steam Mobile → Steam Guard → Scan QR code"
+                        )
+                    except Exception as exc:
+                        status.set_label(
+                            f"QR image error: {exc}\n"
+                            f"Open this URL on another device:\n{session.challenge_url}"
+                        )
+                    return GLib.SOURCE_REMOVE
+
+                GLib.idle_add(show_qr)
+            except Exception as exc:
+                GLib.idle_add(
+                    status.set_label,
+                    f"Install qrcode package or open:\n{session.challenge_url}\n({exc})",
+                )
+
+            result = wait_for_qr_approval(
+                session,
+                timeout=300.0,
+                should_cancel=lambda: cancel_flag["cancel"],
+            )
+            GLib.idle_add(self._on_qr_link_finished, result)
+
+        threading.Thread(target=worker, name="steam-qr-link", daemon=True).start()
+
+    def _on_qr_link_failed(self, message: str) -> bool:
+        self.show_message(message, error=True)
+        return GLib.SOURCE_REMOVE
+
+    def _on_qr_link_finished(self, result: object) -> bool:
+        from gnomepaper_engine.workshop.steam_qr_auth import QRAuthResult
+
+        assert isinstance(result, QRAuthResult)
+        if not result.ok:
+            if result.message != "Cancelled.":
+                self.show_message(result.message, error=True)
+            return GLib.SOURCE_REMOVE
+
+        if result.account_name:
+            if result.account_name != self._steam_username:
+                self._steam_username = result.account_name
+                if self._on_steam_username_changed:
+                    self._on_steam_username_changed(result.account_name)
+        if result.steamid:
+            self._steam_id64 = result.steamid
+
+        self._set_steam_linked(True)
+        self._steam_persona = ""
+        self._steam_avatar_path = ""
+        self._load_steam_avatar_async()
+        self.show_message(result.message)
+
+        pending = getattr(self, "_pending_download_item", None)
+        if pending is not None:
+            self._pending_download_item = None
+            user = result.account_name or self._steam_username
+            self._run_native_download(pending, user, password="", guard="")
+        return GLib.SOURCE_REMOVE
+
+    def _prompt_link_steam_password(self) -> None:
+        """Fallback: classic username + password + Guard."""
         from gnomepaper_engine.workshop.keyring import lookup_steam_password
         from gnomepaper_engine.workshop.steam_account import (
             detect_desktop_steam_account,
-            steam_injector_warning,
         )
 
         desktop = detect_desktop_steam_account()
         prefill = self._steam_username
-        persona_hint = ""
         if desktop is not None:
             prefill = prefill or desktop.account_name
-            if desktop.persona_name and desktop.persona_name != desktop.account_name:
-                persona_hint = f" (Steam is signed in as “{desktop.persona_name}”)"
             if not self._steam_id64 and desktop.steam_id64:
                 self._steam_id64 = desktop.steam_id64
 
-        injector = steam_injector_warning()
-        body = (
-            f"Sign in once with the account that owns Wallpaper Engine{persona_hint}.\n"
-            "Use your Steam login name (account name), not the profile display name.\n"
-            "After this, Download is seamless — no Subscribe click.\n"
-            "If Steam Guard is on, you will be asked for a code next."
+        dialog = Adw.AlertDialog(
+            heading="Link Steam (password)",
+            body=(
+                "Use your Steam account name (login), not display name.\n"
+                "Prefer QR link if password keeps failing."
+            ),
         )
-        if injector:
-            body += (
-                f"\n\nNote: {injector} "
-                "Seamless Download uses a private Steam session and usually still works."
-            )
-
-        dialog = Adw.AlertDialog(heading="Link Steam", body=body)
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("reset", "Reset session")
+        dialog.add_response("qr", "Use QR instead")
         dialog.add_response("link", "Link")
         dialog.set_response_appearance("link", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("link")
         dialog.set_close_response("cancel")
 
@@ -1211,19 +1362,13 @@ class MainWindow(Adw.ApplicationWindow):
             include_guard=False,
             prefill_user=prefill,
         )
-        # Hint if keyring already has a password for this user
         if pass_entry is not None and prefill and lookup_steam_password(prefill):
             pass_entry.set_placeholder_text("Saved in keyring — re-enter to refresh")
         dialog.set_extra_child(box)
 
         def on_response(_dlg: Adw.AlertDialog, response: str) -> None:
-            if response == "reset":
-                from gnomepaper_engine.workshop.client import reset_steamcmd_session
-                from gnomepaper_engine.workshop.steam_native import reset_native_session
-
-                parts = [reset_native_session(self._steam_username), reset_steamcmd_session()]
-                self.show_message(" ".join(parts))
-                GLib.idle_add(self._prompt_link_steam)
+            if response == "qr":
+                GLib.idle_add(self._prompt_link_steam_qr)
                 return
             if response != "link" or pass_entry is None:
                 return
@@ -1234,15 +1379,13 @@ class MainWindow(Adw.ApplicationWindow):
                 if self._on_steam_username_changed:
                     self._on_steam_username_changed(username)
             if not username or not password:
-                self.show_message("Username and password required to link.", error=True)
+                self.show_message("Username and password required.", error=True)
                 return
-            # Keep password for a possible Guard follow-up (memory only)
             self._pending_link_user = username
             self._pending_link_pass = password
             self.show_message("Linking Steam…")
 
             def worker() -> None:
-                # First try without Guard; if Steam wants 2FA we open Guard dialog
                 result = link_steam_account(
                     username=username, password=password, guard_code=""
                 )

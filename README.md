@@ -269,12 +269,11 @@ Then **Re-detect**.
 - Installer **hard-requires** freeglut (**GLUT**), **MPV/libmpv**, and **FFmpeg** (the three deps that most often break CMake on Nobara/Fedora)  
 
 ### Workshop downloads (seamless)
-- **Link Steam once** (top-left) — password + Guard if asked  
-- GnomePaper keeps a **private Steam login key** (not SteamCMD, not your desktop client)  
-- Click **Download** on a Workshop item — files land in your Steam workshop folder automatically  
-- **No Subscribe click**, no SteamCMD for the default path  
-- Fallback: “Subscribe in Steam instead” if you ever need the client path  
-- SteamCMD remains an optional Settings toggle only  
+- **Link Steam with QR** (top-left) — scan with **Steam Mobile → Steam Guard → Scan QR** (no password)  
+- GnomePaper stores Steam **access/refresh tokens** privately  
+- Click **Download** — files go straight into your workshop folder  
+- **No password typing**, no Subscribe click, no SteamCMD for the normal path  
+- Password link remains as a fallback; SteamCMD is optional in Settings only  
 
 Also fix the typo PressURE if any...
 

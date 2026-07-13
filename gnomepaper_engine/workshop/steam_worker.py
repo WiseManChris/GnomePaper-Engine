@@ -282,6 +282,52 @@ def cmd_link(args: argparse.Namespace) -> int:
             pass
 
 
+def _login_with_access_token(client, account_name: str, access_token: str):
+    """Modern JWT logon (used after QR / refresh_token)."""
+    from steam.core.crypto import sha1_hash
+    from steam.core.msg import MsgProto
+    from steam.enums import EOSType, EResult
+    from steam.enums.emsg import EMsg
+    from steam.steamid import SteamID
+    from steam.utils.web import ip4_to_int
+
+    eresult = client._pre_login()
+    if eresult != EResult.OK:
+        return eresult
+
+    client.username = account_name
+    message = MsgProto(EMsg.ClientLogon)
+    message.header.steamid = SteamID(type="Individual", universe="Public")
+    message.body.protocol_version = 65580
+    message.body.client_package_version = 1561159470
+    message.body.client_os_type = EOSType.LinuxUnknown
+    message.body.client_language = "english"
+    message.body.should_remember_password = True
+    message.body.supports_rate_limit_response = True
+    message.body.chat_mode = client.chat_mode
+    try:
+        message.body.obfuscated_private_ip.v4 = (
+            ip4_to_int(client.connection.local_address) ^ 0xF00DBAAD
+        )
+    except Exception:
+        pass
+    message.body.account_name = account_name
+    message.body.access_token = access_token
+
+    sentry = client.get_sentry(account_name)
+    if sentry is None:
+        message.body.eresult_sentryfile = EResult.FileNotFound
+    else:
+        message.body.eresult_sentryfile = EResult.OK
+        message.body.sha_sentryfile = sha1_hash(sentry)
+
+    client.send(message)
+    resp = client.wait_msg(EMsg.ClientLogOnResponse, timeout=30)
+    if resp is None:
+        return EResult.Fail
+    return EResult(resp.body.eresult)
+
+
 def cmd_download(args: argparse.Namespace) -> int:
     _patch_gevent()
     from steam.client.cdn import CDNClient
@@ -292,45 +338,63 @@ def cmd_download(args: argparse.Namespace) -> int:
     item_id = str(args.item_id).strip()
     dest = Path(args.dest)
     login_key = os.environ.get("GNOMEPAPER_STEAM_LOGIN_KEY", "") or (args.login_key or "")
+    access_token = os.environ.get("GNOMEPAPER_STEAM_ACCESS_TOKEN", "") or (
+        getattr(args, "access_token", "") or ""
+    )
     password = _password_from_env_or_args(args)
     guard = (args.guard or "").strip()
 
-    if not username:
-        return _fail("Username required", needs_password=True)
     if not item_id.isdigit():
         return _fail(f"Invalid workshop id: {item_id}")
-    if not login_key and not password:
+    if not access_token and not login_key and not password:
         return _fail(
-            "No Steam session. Link Steam once (top-left).",
+            "No Steam session. Link Steam with QR (top-left).",
             needs_password=True,
         )
+    if not username and not access_token:
+        return _fail("Username required", needs_password=True)
 
     client = _make_client(Path(args.cred_dir))
     try:
         if not client.connect(retry=5):
             return _fail("Could not connect to Steam network")
 
-        if login_key:
+        if access_token:
+            # QR / modern token login — account_name may be empty for some tokens
+            result = _login_with_access_token(
+                client, username or "user", access_token
+            )
+            if result != EResult.OK:
+                return _fail(
+                    f"Steam token login failed: {EResult(result)!r}. "
+                    "Scan the Link QR again.",
+                    needs_password=True,
+                    eresult=int(result),
+                )
+        elif login_key:
             result = client.login(username, login_key=login_key)
             if result != EResult.OK:
-                # Key expired — fall through to password if we have it
                 if not password:
                     return _fail(
-                        "Steam session expired. Link Steam again (top-left).",
+                        "Steam session expired. Link with QR again (top-left).",
                         needs_password=True,
                         eresult=int(result),
                     )
                 result = _login_password(client, username, password, guard)
+                mapped = _map_login_result(result, had_guard=bool(guard))
+                if mapped is not None:
+                    return _fail(**mapped)
         else:
             result = _login_password(client, username, password, guard)
+            mapped = _map_login_result(result, had_guard=bool(guard))
+            if mapped is not None:
+                return _fail(**mapped)
 
-        mapped = _map_login_result(result, had_guard=bool(guard))
-        if mapped is not None:
-            return _fail(**mapped)
-
-        if not client.login_key:
-            client.wait_event(client.EVENT_NEW_LOGIN_KEY, timeout=10)
-        new_key = client.login_key or login_key
+        new_key = login_key
+        if not access_token:
+            if not client.login_key:
+                client.wait_event(client.EVENT_NEW_LOGIN_KEY, timeout=10)
+            new_key = client.login_key or login_key
 
         cdn = CDNClient(client)
         try:
@@ -404,10 +468,11 @@ def main(argv: list[str] | None = None) -> int:
     p_link.set_defaults(func=cmd_link)
 
     p_dl = sub.add_parser("download")
-    p_dl.add_argument("--username", required=True)
+    p_dl.add_argument("--username", default="")
     p_dl.add_argument("--item-id", required=True)
     p_dl.add_argument("--dest", required=True)
     p_dl.add_argument("--login-key", default="")
+    p_dl.add_argument("--access-token", default="")
     p_dl.add_argument("--password", default="")
     p_dl.add_argument("--guard", default="")
     p_dl.set_defaults(func=cmd_download)

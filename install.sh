@@ -111,9 +111,9 @@ install_app() {
   # shellcheck disable=SC1091
   source "${VENV}/bin/activate"
   pip install --upgrade pip setuptools wheel >/dev/null
-  # Seamless Steam downloads (login key + CDN) — not SteamCMD
-  pip install -U 'steam[client]' gevent protobuf >/dev/null || \
-    pip install -U 'steam[client]' gevent >/dev/null || true
+  # Seamless Steam: QR auth + CDN downloads (not SteamCMD)
+  pip install -U 'steam[client]' gevent protobuf qrcode pillow requests >/dev/null || \
+    pip install -U 'steam[client]' gevent qrcode pillow requests >/dev/null || true
   pip install --force-reinstall "${REPO_ROOT}"
 
   # Stable launcher on PATH (always points at venv)

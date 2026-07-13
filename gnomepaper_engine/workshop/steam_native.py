@@ -304,21 +304,29 @@ def download_via_native(
     """
     Seamless workshop download into the real Steam workshop folder.
 
-    Auth order: login key → keyring password → fail (prompt Link).
+    Auth order: QR tokens (access/refresh) → login key → keyring password.
     """
     from gnomepaper_engine.workshop.keyring import lookup_steam_password, store_steam_password
+    from gnomepaper_engine.workshop.steam_qr_auth import load_tokens, refresh_access_token
 
-    username = username.strip()
-    if not username:
+    username = (username or "").strip()
+    tokens = refresh_access_token() or load_tokens()
+    access_token = ""
+    if tokens:
+        access_token = tokens.get("access_token") or ""
+        if not username:
+            username = tokens.get("account_name") or ""
+
+    login_key = lookup_login_key(username) if username else ""
+    if not password and username:
+        password = lookup_steam_password(username) or ""
+
+    if not access_token and not login_key and not password:
         return SteamCmdResult(
             False,
-            "Link Steam once (top-left) for seamless downloads.",
+            "Link Steam once with the QR code (top-left) for seamless downloads.",
             needs_password=True,
         )
-
-    login_key = lookup_login_key(username) or ""
-    if not password:
-        password = lookup_steam_password(username) or ""
 
     dest_root = primary_workshop_content_dir()
     dest = dest_root / str(item_id)
@@ -327,6 +335,8 @@ def download_via_native(
         progress("Downloading from Steam…")
 
     env: dict[str, str] = {}
+    if access_token:
+        env["GNOMEPAPER_STEAM_ACCESS_TOKEN"] = access_token
     if login_key:
         env["GNOMEPAPER_STEAM_LOGIN_KEY"] = login_key
     if password:
@@ -338,18 +348,22 @@ def download_via_native(
         shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True, exist_ok=True)
 
+    worker_args = [
+        "download",
+        "--username",
+        username or "user",
+        "--item-id",
+        str(item_id),
+        "--dest",
+        str(tmp),
+        "--guard",
+        guard_code.strip(),
+    ]
+    if access_token:
+        worker_args.extend(["--access-token", access_token])
+
     payload = _run_worker(
-        [
-            "download",
-            "--username",
-            username,
-            "--item-id",
-            str(item_id),
-            "--dest",
-            str(tmp),
-            "--guard",
-            guard_code.strip(),
-        ],
+        worker_args,
         env_extra=env,
         timeout=900,
         progress=progress,
@@ -386,16 +400,17 @@ def download_via_native(
 
 
 def reset_native_session(username: str = "") -> str:
-    """Clear login keys / sentry so the next Link is clean."""
+    """Clear login keys / QR tokens / sentry so the next Link is clean."""
+    from gnomepaper_engine.workshop.steam_qr_auth import clear_tokens
+
     clear_login_key(username)
-    # Wipe all keys if no username
+    clear_tokens()
     if not username:
         try:
             for p in native_cred_dir().glob("*.login_key"):
                 p.unlink(missing_ok=True)
         except OSError:
             pass
-    # Remove sentry / credential blobs
     wiped = 0
     for p in native_cred_dir().iterdir():
         if p.name.endswith(".login_key") or p.name == "download_tmp":
@@ -408,4 +423,20 @@ def reset_native_session(username: str = "") -> str:
             wiped += 1
         except OSError:
             pass
-    return f"Cleared seamless Steam session ({wiped} files). Link Steam again."
+    return f"Cleared seamless Steam session ({wiped} files). Scan the QR again."
+
+
+def has_seamless_session() -> bool:
+    """True if QR tokens or a login key exist."""
+    from gnomepaper_engine.workshop.steam_qr_auth import load_tokens
+
+    tokens = load_tokens()
+    if tokens and (tokens.get("access_token") or tokens.get("refresh_token")):
+        return True
+    # legacy login_key files
+    try:
+        if any(native_cred_dir().glob("*.login_key")):
+            return True
+    except OSError:
+        pass
+    return False

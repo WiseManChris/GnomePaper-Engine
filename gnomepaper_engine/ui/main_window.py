@@ -1430,18 +1430,18 @@ class MainWindow(Adw.ApplicationWindow):
         if result.linked:
             self._set_steam_linked(True)
         if getattr(result, "rate_limited", False):
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
             self.show_message(result.message, error=True)
             return GLib.SOURCE_REMOVE
         if result.needs_guard:
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
             self.show_message(result.message, error=True)
             item = self._ws_selected
             if item is not None and item.id == item_id:
                 self._prompt_steamcmd_download(item, guard_only=True)
             return GLib.SOURCE_REMOVE
         if result.needs_password:
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
             self.show_message(result.message, error=True)
             item = self._ws_selected
             # Only open password dialog if keyring is empty — avoid re-auth loops
@@ -1462,7 +1462,7 @@ class MainWindow(Adw.ApplicationWindow):
             return GLib.SOURCE_REMOVE
 
         if not result.ok:
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
             self.show_message(result.message, error=True)
             return GLib.SOURCE_REMOVE
 
@@ -1477,7 +1477,7 @@ class MainWindow(Adw.ApplicationWindow):
     ) -> bool:
         self._ws_install_btn.set_sensitive(True)
         if path is None:
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
             self.show_message(
                 "Download not found yet — try Direct download or Subscribe page.",
                 error=True,

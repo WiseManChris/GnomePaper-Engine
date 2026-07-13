@@ -467,21 +467,29 @@ class MainWindow(Adw.ApplicationWindow):
             self._ws_detail_meta = meta
             self._ws_detail_tags = tags
             self._ws_install_btn = primary
-            self._ws_install_btn.set_label("Download")
+            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_tooltip_text(
+                "Opens the Workshop item in Steam — Subscribe and we pick it up "
+                "(works with SteamTools / custom Steam)"
+            )
             self._ws_install_btn.connect("clicked", self._on_ws_install_clicked)
 
-            sub_btn = Gtk.Button(label="Open Subscribe page")
-            sub_btn.add_css_class("flat")
-            sub_btn.set_margin_start(16)
-            sub_btn.set_margin_end(16)
-            sub_btn.connect("clicked", self._on_ws_subscribe_fallback)
-            right.append(sub_btn)
+            cmd_btn = Gtk.Button(label="SteamCMD download (advanced)")
+            cmd_btn.add_css_class("flat")
+            cmd_btn.set_margin_start(16)
+            cmd_btn.set_margin_end(16)
+            cmd_btn.set_tooltip_text(
+                "Optional. Often breaks with SteamTools / Lua Tools. "
+                "Needs Link Steam (top-left)."
+            )
+            cmd_btn.connect("clicked", self._on_ws_steamcmd_advanced)
+            right.append(cmd_btn)
 
             tip = Gtk.Label(
                 label=(
-                    "Direct download uses SteamCMD with your Steam account "
-                    "(owns Wallpaper Engine). No Subscribe click needed. "
-                    "Password is never saved. Desktop Steam may briefly log out."
+                    "Recommended: Get via Steam → click Subscribe in your Steam client. "
+                    "Works with normal Steam, SteamTools, and custom clients. "
+                    "SteamCMD is optional and often fails with injectors."
                 ),
                 wrap=True,
                 xalign=0,
@@ -563,8 +571,8 @@ class MainWindow(Adw.ApplicationWindow):
         steam_group.add_css_class("boxed-list")
         steam_group.append(
             self._switch_row(
-                "Direct download (SteamCMD)",
-                "Download without clicking Subscribe (use Link in the top-left)",
+                "Prefer SteamCMD (advanced)",
+                "Unreliable with SteamTools / custom Steam — leave off unless you need it",
                 self._prefer_steamcmd,
                 self._on_prefer_steamcmd_switch,
             )
@@ -1023,7 +1031,8 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_message(f"Already installed: {item.title}")
             return
 
-        # Prefer SteamCMD: use cached link when possible
+        # Default: Steam client Subscribe (reliable with non-stock Steam).
+        # SteamCMD only if the user explicitly prefers it (advanced).
         if self._prefer_steamcmd:
             if self._steam_linked and self._steam_username:
                 self._run_steamcmd_download(
@@ -1034,6 +1043,27 @@ class MainWindow(Adw.ApplicationWindow):
             return
 
         self._start_subscribe_watch(item)
+
+    def _on_ws_steamcmd_advanced(self, *_args: object) -> None:
+        """Manual SteamCMD path — optional, often broken with injectors."""
+        item = self._ws_selected
+        if item is None:
+            return
+        if not self._we_owned:
+            self.show_message(
+                "Wallpaper Engine must be installed (owned on Steam) to download wallpapers.",
+                error=True,
+            )
+            return
+        if is_installed(item.id):
+            self.show_message(f"Already installed: {item.title}")
+            return
+        if self._steam_linked and self._steam_username:
+            self._run_steamcmd_download(
+                item, self._steam_username, password="", guard=""
+            )
+            return
+        self._prompt_steamcmd_download(item)
 
     def _on_ws_subscribe_fallback(self, *_args: object) -> None:
         item = self._ws_selected

@@ -44,8 +44,10 @@ class AppConfig:
     steam_persona_name: str = ""
     steam_id64: str = ""
     steam_avatar_path: str = ""  # local cached avatar file
-    # Prefer SteamCMD download over Subscribe-in-browser when credentials available
-    prefer_steamcmd_download: bool = True
+    # Prefer SteamCMD over Steam-client Subscribe. Default False: SteamCMD is
+    # unreliable with SteamTools / non-stock Steam; Subscribe-via-Steam is the
+    # robust path for most users.
+    prefer_steamcmd_download: bool = False
     # Desktop session (v1.0)
     close_to_background: bool = True
     start_minimized: bool = False

@@ -209,13 +209,16 @@ class SettingsDialog(Adw.PreferencesDialog):
         # Downloads
         dl = Adw.PreferencesGroup(
             title="Workshop downloads",
-            description="SteamCMD direct download (account must own Wallpaper Engine).",
+            description=(
+                "Default: open the item in Steam and Subscribe (works with SteamTools "
+                "and custom clients). SteamCMD is optional and often breaks with injectors."
+            ),
         )
         page.add(dl)
 
         self._steamcmd_row = Adw.SwitchRow(
-            title="Prefer direct download (SteamCMD)",
-            subtitle="Skip the Subscribe button when possible",
+            title="Prefer SteamCMD (advanced)",
+            subtitle="Requires Link Steam — leave off if you use SteamTools / Lua Tools",
             active=self._config.prefer_steamcmd_download,
         )
         self._steamcmd_row.connect("notify::active", self._on_steamcmd)

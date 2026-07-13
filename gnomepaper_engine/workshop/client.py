@@ -251,45 +251,63 @@ def workshop_item_path(item_id: str) -> Path | None:
 
 def open_install(item_id: str) -> str:
     """
-    Open the Steam Workshop page so the user can Subscribe (Steam downloads it).
+    Open the Steam Workshop page so the user can Subscribe.
+
+    This is the **reliable** install path for non-stock Steam (SteamTools,
+    Lua Tools, custom clients): your Steam client downloads the item into
+    the normal workshop folder and GnomePaper picks it up.
 
     Returns a short human message describing what happened.
     """
     steam_uri = f"steam://url/CommunityFilePage/{item_id}"
     web_url = f"https://steamcommunity.com/sharedfiles/filedetails/?id={item_id}"
 
-    steam_bin = shutil.which("steam")
-    if steam_bin:
+    def _spawn(cmd: list[str]) -> bool:
         try:
             subprocess.Popen(
-                [steam_bin, steam_uri],
+                cmd,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            return (
-                "Opened in Steam — click Subscribe. "
-                "GnomePaper will add it when the download finishes."
-            )
+            return True
         except OSError as exc:
-            log.warning("steam launch failed: %s", exc)
+            log.warning("launch failed %s: %s", cmd, exc)
+            return False
 
-    # Fallback: system browser (Subscribe still works if Steam is running)
+    # 1) steam:// via xdg-open — works with custom/SteamTools clients registered
+    #    as the steam protocol handler (often better than PATH "steam")
     xdg = shutil.which("xdg-open")
-    if xdg:
-        try:
-            subprocess.Popen(
-                [xdg, web_url],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return (
-                "Opened Workshop in your browser — click Subscribe. "
-                "Keep Steam running so the wallpaper downloads."
-            )
-        except OSError as exc:
-            log.warning("xdg-open failed: %s", exc)
+    if xdg and _spawn([xdg, steam_uri]):
+        return (
+            "Opened in Steam — click Subscribe. "
+            "GnomePaper will detect it when the download finishes."
+        )
+
+    # 2) steam binary on PATH
+    steam_bin = shutil.which("steam")
+    if steam_bin and _spawn([steam_bin, steam_uri]):
+        return (
+            "Opened in Steam — click Subscribe. "
+            "GnomePaper will detect it when the download finishes."
+        )
+
+    # 3) Flatpak Steam
+    flatpak = shutil.which("flatpak")
+    if flatpak and _spawn(
+        ["flatpak", "run", "com.valvesoftware.Steam", steam_uri]
+    ):
+        return (
+            "Opened Flatpak Steam — click Subscribe. "
+            "GnomePaper will detect it when the download finishes."
+        )
+
+    # 4) Browser — Subscribe still works if Steam is running in the background
+    if xdg and _spawn([xdg, web_url]):
+        return (
+            "Opened Workshop in your browser — click Subscribe. "
+            "Keep Steam running so the wallpaper downloads."
+        )
 
     return f"Open this URL and click Subscribe:\n{web_url}"
 

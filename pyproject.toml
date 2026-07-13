@@ -22,7 +22,11 @@ classifiers = [
 ]
 # UI depends on system packages (any GNOME distro): PyGObject, GTK4, libadwaita
 # Install with: ./install.sh
+# Seamless Steam downloads use steam[client] (installed by install.sh into the venv)
 dependencies = []
+
+[project.optional-dependencies]
+steam = ["steam[client]>=1.4.4", "gevent"]
 
 [project.urls]
 Homepage = "https://github.com/WiseManChris/GnomePaper-Engine"

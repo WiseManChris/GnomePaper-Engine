@@ -210,15 +210,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         dl = Adw.PreferencesGroup(
             title="Workshop downloads",
             description=(
-                "Default: open the item in Steam and Subscribe (works with SteamTools "
-                "and custom clients). SteamCMD is optional and often breaks with injectors."
+                "Default: seamless Download after Link Steam (private Steam session, "
+                "no Subscribe click, no SteamCMD). Leave SteamCMD off unless debugging."
             ),
         )
         page.add(dl)
 
         self._steamcmd_row = Adw.SwitchRow(
-            title="Prefer SteamCMD (advanced)",
-            subtitle="Requires Link Steam — leave off if you use SteamTools / Lua Tools",
+            title="Use SteamCMD instead",
+            subtitle="Legacy fallback — usually worse than seamless Download",
             active=self._config.prefer_steamcmd_download,
         )
         self._steamcmd_row.connect("notify::active", self._on_steamcmd)

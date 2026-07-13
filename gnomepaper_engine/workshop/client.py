@@ -731,11 +731,10 @@ def link_steam_account(
     store_password: bool = True,
 ) -> SteamCmdResult:
     """
-    Log into isolated SteamCMD and keep credentials for Workshop downloads.
+    Link Steam for seamless Workshop downloads.
 
-    - Session tokens live only under GnomePaper's steamcmd home (not desktop Steam).
-    - Password is stored in the **GNOME Keyring** for silent renew on this PC.
-    - Prefer linking once; downloads then use the cached session first.
+    Preferred path: native Steam network client (login key — no SteamCMD).
+    Fallback: isolated SteamCMD if the native package is unavailable.
     """
     username = username.strip()
     if not username or not password:
@@ -745,27 +744,39 @@ def link_steam_account(
             needs_password=True,
         )
 
-    # Warn early about injectors (non-fatal)
+    # Seamless native Steam (ValvePython) — does not use SteamCMD
     try:
-        from gnomepaper_engine.workshop.steam_account import steam_injector_warning
+        from gnomepaper_engine.workshop.steam_native import (
+            link_steam_native,
+            native_steam_available,
+        )
 
-        warn = steam_injector_warning()
-        if warn and progress:
-            progress(warn)
-    except Exception:
-        pass
+        if native_steam_available():
+            return link_steam_native(
+                username=username,
+                password=password,
+                guard_code=guard_code,
+                progress=progress,
+            )
+    except Exception as exc:
+        log.warning("native Steam link failed, trying SteamCMD: %s", exc)
 
+    # ── SteamCMD fallback ────────────────────────────────────────────────
     try:
         cmd_bin = ensure_steamcmd()
     except Exception as exc:
-        return SteamCmdResult(False, f"Could not install SteamCMD: {exc}")
+        return SteamCmdResult(
+            False,
+            f"Could not link Steam (native package missing and SteamCMD failed: {exc}). "
+            "Re-run ./install.sh.",
+        )
 
     from gnomepaper_engine.config import AppConfig
     from gnomepaper_engine.workshop.keyring import store_steam_password
 
     log_path = AppConfig.cache_dir() / "steamcmd_link.log"
     if progress:
-        progress("Linking Steam (isolated SteamCMD session)…")
+        progress("Linking via SteamCMD fallback…")
 
     args: list[str] = [
         str(cmd_bin),
@@ -792,8 +803,7 @@ def link_steam_account(
     if not _login_ok(output, _code):
         return SteamCmdResult(
             False,
-            "Could not confirm Steam login. Check password / Steam Guard. "
-            "If SteamTools or Lua Tools is installed, disable it first.",
+            "Could not confirm Steam login. Check password / Steam Guard.",
             needs_password=True,
             needs_guard="guard" in output.lower() or "auth code" in output.lower(),
             log_tail=output[-600:],
@@ -803,12 +813,9 @@ def link_steam_account(
     if store_password:
         stored = store_steam_password(username, password)
 
-    msg = f"Linked “{username}” on this PC."
+    msg = f"Linked “{username}” (SteamCMD fallback)."
     if stored:
-        msg += " Password saved in GNOME Keyring — downloads reuse this session."
-    else:
-        msg += " (Keyring unavailable — you may need to re-enter the password later.)"
-
+        msg += " Password saved in GNOME Keyring."
     return SteamCmdResult(True, msg, linked=True, log_tail=output[-400:])
 
 

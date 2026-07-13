@@ -467,29 +467,17 @@ class MainWindow(Adw.ApplicationWindow):
             self._ws_detail_meta = meta
             self._ws_detail_tags = tags
             self._ws_install_btn = primary
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self._ws_install_btn.set_tooltip_text(
-                "Opens the Workshop item in Steam — Subscribe and we pick it up "
-                "(works with SteamTools / custom Steam)"
+                "One-click download over the Steam network (seamless after Link Steam)"
             )
             self._ws_install_btn.connect("clicked", self._on_ws_install_clicked)
 
-            cmd_btn = Gtk.Button(label="SteamCMD download (advanced)")
-            cmd_btn.add_css_class("flat")
-            cmd_btn.set_margin_start(16)
-            cmd_btn.set_margin_end(16)
-            cmd_btn.set_tooltip_text(
-                "Optional. Often breaks with SteamTools / Lua Tools. "
-                "Needs Link Steam (top-left)."
-            )
-            cmd_btn.connect("clicked", self._on_ws_steamcmd_advanced)
-            right.append(cmd_btn)
-
             tip = Gtk.Label(
                 label=(
-                    "Recommended: Get via Steam → click Subscribe in your Steam client. "
-                    "Works with normal Steam, SteamTools, and custom clients. "
-                    "SteamCMD is optional and often fails with injectors."
+                    "Link Steam once (top-left), then Download is seamless — "
+                    "no Subscribe click, no SteamCMD. Uses a private Steam session "
+                    "that does not fight your desktop client."
                 ),
                 wrap=True,
                 xalign=0,
@@ -501,12 +489,13 @@ class MainWindow(Adw.ApplicationWindow):
             tip.add_css_class("caption")
             right.append(tip)
 
-            open_web = Gtk.Button(label="Open in browser")
-            open_web.add_css_class("flat")
-            open_web.set_margin_start(16)
-            open_web.set_margin_end(16)
-            open_web.connect("clicked", self._on_ws_open_browser)
-            right.append(open_web)
+            sub_btn = Gtk.Button(label="Subscribe in Steam instead")
+            sub_btn.add_css_class("flat")
+            sub_btn.set_margin_start(16)
+            sub_btn.set_margin_end(16)
+            sub_btn.set_tooltip_text("Fallback: open Workshop in Steam and click Subscribe")
+            sub_btn.connect("clicked", self._on_ws_subscribe_fallback)
+            right.append(sub_btn)
 
         right_scroll.set_child(right)
         return right_scroll
@@ -571,8 +560,8 @@ class MainWindow(Adw.ApplicationWindow):
         steam_group.add_css_class("boxed-list")
         steam_group.append(
             self._switch_row(
-                "Prefer SteamCMD (advanced)",
-                "Unreliable with SteamTools / custom Steam — leave off unless you need it",
+                "Use SteamCMD fallback",
+                "Only if seamless Download fails — SteamCMD is flaky with injectors",
                 self._prefer_steamcmd,
                 self._on_prefer_steamcmd_switch,
             )
@@ -1031,8 +1020,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_message(f"Already installed: {item.title}")
             return
 
-        # Default: Steam client Subscribe (reliable with non-stock Steam).
-        # SteamCMD only if the user explicitly prefers it (advanced).
+        # Seamless native Steam download (login key). Optional SteamCMD if enabled.
         if self._prefer_steamcmd:
             if self._steam_linked and self._steam_username:
                 self._run_steamcmd_download(
@@ -1042,34 +1030,63 @@ class MainWindow(Adw.ApplicationWindow):
             self._prompt_steamcmd_download(item)
             return
 
-        self._start_subscribe_watch(item)
+        if self._steam_username and (
+            self._steam_linked
+            or self._has_native_session(self._steam_username)
+        ):
+            self._run_native_download(item, self._steam_username, password="", guard="")
+            return
 
-    def _on_ws_steamcmd_advanced(self, *_args: object) -> None:
-        """Manual SteamCMD path — optional, often broken with injectors."""
-        item = self._ws_selected
-        if item is None:
-            return
-        if not self._we_owned:
-            self.show_message(
-                "Wallpaper Engine must be installed (owned on Steam) to download wallpapers.",
-                error=True,
-            )
-            return
-        if is_installed(item.id):
-            self.show_message(f"Already installed: {item.title}")
-            return
-        if self._steam_linked and self._steam_username:
-            self._run_steamcmd_download(
-                item, self._steam_username, password="", guard=""
-            )
-            return
-        self._prompt_steamcmd_download(item)
+        # Not linked yet — one Link dialog, then download
+        self._prompt_link_steam_for_download(item)
+
+    def _has_native_session(self, username: str) -> bool:
+        try:
+            from gnomepaper_engine.workshop.steam_native import lookup_login_key
+            from gnomepaper_engine.workshop.keyring import lookup_steam_password
+
+            return bool(lookup_login_key(username) or lookup_steam_password(username))
+        except Exception:
+            return False
+
+    def _prompt_link_steam_for_download(self, item: WorkshopItem) -> None:
+        """Link once, then immediately download the selected item."""
+        self._pending_download_item = item
+        self._prompt_link_steam()
 
     def _on_ws_subscribe_fallback(self, *_args: object) -> None:
         item = self._ws_selected
         if item is None:
             return
         self._start_subscribe_watch(item)
+
+    def _run_native_download(
+        self,
+        item: WorkshopItem,
+        username: str,
+        password: str,
+        guard: str,
+    ) -> None:
+        self._ws_install_btn.set_sensitive(False)
+        self._ws_install_btn.set_label("Downloading…")
+        self.show_message(f"Downloading {item.title}…")
+
+        def worker() -> None:
+            from gnomepaper_engine.workshop.steam_native import download_via_native
+
+            def prog(msg: str) -> None:
+                GLib.idle_add(self.show_message, msg)
+
+            result = download_via_native(
+                item.id,
+                username=username,
+                password=password,
+                guard_code=guard,
+                progress=prog,
+            )
+            GLib.idle_add(self._on_steamcmd_finished, item.id, item.title, result)
+
+        threading.Thread(target=worker, name="steam-native-dl", daemon=True).start()
 
     def _start_subscribe_watch(self, item: WorkshopItem) -> None:
         msg = open_install(item.id)
@@ -1167,11 +1184,14 @@ class MainWindow(Adw.ApplicationWindow):
         injector = steam_injector_warning()
         body = (
             f"Sign in once with the account that owns Wallpaper Engine{persona_hint}.\n"
-            "Username is pre-filled from desktop Steam when possible — "
-            "you usually only need your password."
+            "After this, Workshop Download is seamless — no Subscribe, no SteamCMD.\n"
+            "Username is pre-filled when desktop Steam is detected."
         )
         if injector:
-            body += f"\n\n⚠ {injector}"
+            body += (
+                f"\n\nNote: {injector} "
+                "Seamless Download uses a private Steam session and usually still works."
+            )
 
         dialog = Adw.AlertDialog(heading="Link Steam", body=body)
         dialog.add_response("cancel", "Cancel")
@@ -1195,10 +1215,10 @@ class MainWindow(Adw.ApplicationWindow):
         def on_response(_dlg: Adw.AlertDialog, response: str) -> None:
             if response == "reset":
                 from gnomepaper_engine.workshop.client import reset_steamcmd_session
+                from gnomepaper_engine.workshop.steam_native import reset_native_session
 
-                msg = reset_steamcmd_session()
-                self.show_message(msg)
-                # Open a fresh link dialog after reset
+                parts = [reset_native_session(self._steam_username), reset_steamcmd_session()]
+                self.show_message(" ".join(parts))
                 GLib.idle_add(self._prompt_link_steam)
                 return
             if response != "link" or pass_entry is None:
@@ -1290,6 +1310,13 @@ class MainWindow(Adw.ApplicationWindow):
             self._steam_avatar_path = ""
             self._load_steam_avatar_async()
             self.show_message(result.message)
+            # Continue a pending workshop download after first-time link
+            pending = getattr(self, "_pending_download_item", None)
+            if pending is not None:
+                self._pending_download_item = None
+                self._run_native_download(
+                    pending, self._steam_username, password="", guard=""
+                )
         else:
             # Keep previous linked state unless auth is clearly invalid —
             # rate limits / concurrent SteamCMD must not wipe a good link.
@@ -1430,18 +1457,18 @@ class MainWindow(Adw.ApplicationWindow):
         if result.linked:
             self._set_steam_linked(True)
         if getattr(result, "rate_limited", False):
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
             return GLib.SOURCE_REMOVE
         if result.needs_guard:
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
             item = self._ws_selected
             if item is not None and item.id == item_id:
                 self._prompt_steamcmd_download(item, guard_only=True)
             return GLib.SOURCE_REMOVE
         if result.needs_password:
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
             item = self._ws_selected
             # Only open password dialog if keyring is empty — avoid re-auth loops
@@ -1462,7 +1489,7 @@ class MainWindow(Adw.ApplicationWindow):
             return GLib.SOURCE_REMOVE
 
         if not result.ok:
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self.show_message(result.message, error=True)
             return GLib.SOURCE_REMOVE
 
@@ -1477,7 +1504,7 @@ class MainWindow(Adw.ApplicationWindow):
     ) -> bool:
         self._ws_install_btn.set_sensitive(True)
         if path is None:
-            self._ws_install_btn.set_label("Get via Steam")
+            self._ws_install_btn.set_label("Download")
             self.show_message(
                 "Download not found yet — try Direct download or Subscribe page.",
                 error=True,

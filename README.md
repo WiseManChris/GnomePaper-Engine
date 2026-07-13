@@ -268,11 +268,13 @@ Then **Re-detect**.
 - Terminal installer script still available: `./scripts/install_linux_wallpaperengine.sh`  
 - Installer **hard-requires** freeglut (**GLUT**), **MPV/libmpv**, and **FFmpeg** (the three deps that most often break CMake on Nobara/Fedora)  
 
-### Workshop downloads (how to get wallpapers)
-- **Default (recommended): Get via Steam** — opens the Workshop item in your Steam client; click **Subscribe**; GnomePaper watches the workshop folder and imports it  
-- Works with **stock Steam, SteamTools, Lua Tools, Flatpak Steam** — whatever client can download workshop content  
-- **SteamCMD** is **optional / advanced** (Settings or “SteamCMD download” button). It is fragile with injectors and dual logins — leave it off unless you know you need it  
-- Optional Link Steam (top-left) is only for the SteamCMD path; password in **GNOME Keyring** if you use it  
+### Workshop downloads (seamless)
+- **Link Steam once** (top-left) — password + Guard if asked  
+- GnomePaper keeps a **private Steam login key** (not SteamCMD, not your desktop client)  
+- Click **Download** on a Workshop item — files land in your Steam workshop folder automatically  
+- **No Subscribe click**, no SteamCMD for the default path  
+- Fallback: “Subscribe in Steam instead” if you ever need the client path  
+- SteamCMD remains an optional Settings toggle only  
 
 Also fix the typo PressURE if any...
 

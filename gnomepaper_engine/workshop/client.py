@@ -425,27 +425,90 @@ class SteamCmdResult:
     log_tail: str = ""
 
 
+def steamcmd_home() -> Path:
+    """Isolated HOME for SteamCMD (never the real user home / desktop Steam)."""
+    return steamcmd_dir() / "home"
+
+
+def steamcmd_steam_root() -> Path:
+    """Isolated Steam library root for force_install_dir + credentials."""
+    return steamcmd_home() / ".local" / "share" / "Steam"
+
+
 def _steamcmd_env() -> dict[str, str]:
     """
-    Isolate SteamCMD from the desktop Steam client.
+    Fully isolate SteamCMD from the desktop Steam client.
 
-    Desktop Steam was hijacking logs/credentials under ~/.local/share/Steam,
-    which made cached logins unreliable. We give SteamCMD its own HOME so
-    GnomePaper sessions do not fight the Steam desktop client — or a second
-    GnomePaper process on another machine (each machine has its own tree).
+    Desktop Steam, SteamTools, and “Lua Tools” injectors live under the real
+    ~/.local/share/Steam tree. Sharing that tree causes endless Guard / re-auth
+    loops. Force HOME + XDG dirs into our private tree instead.
     """
+    home = steamcmd_home()
+    data = home / ".local" / "share"
+    config = home / ".config"
+    cache = home / ".cache"
+    state = home / ".local" / "state"
+    steam_root = steamcmd_steam_root()
+    for p in (home, data, config, cache, state, steam_root):
+        p.mkdir(parents=True, exist_ok=True)
+
     env = os.environ.copy()
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
-    # Isolated home so config/ssfn live under our steamcmd tree
-    home = steamcmd_dir() / "home"
-    home.mkdir(parents=True, exist_ok=True)
-    env["HOME"] = str(home)
-    # Avoid inheriting desktop Steam runtime vars
+    env.pop("WAYLAND_SOCKET", None)
     for key in list(env):
-        if key.startswith("STEAM_") or key in ("SteamAppId", "SteamGameId"):
+        ku = key.upper()
+        if ku.startswith("STEAM") or key in (
+            "SteamAppId",
+            "SteamGameId",
+            "SteamOverlayGameId",
+        ):
             env.pop(key, None)
+
+    env["HOME"] = str(home)
+    env["XDG_DATA_HOME"] = str(data)
+    env["XDG_CONFIG_HOME"] = str(config)
+    env["XDG_CACHE_HOME"] = str(cache)
+    env["XDG_STATE_HOME"] = str(state)
+    env["STEAM_DIR"] = str(steam_root)
+    env["STEAMROOT"] = str(steam_root)
     return env
+
+
+def reset_steamcmd_session() -> str:
+    """
+    Wipe isolated SteamCMD login tokens so the next Link is a clean sign-in.
+    Does not touch the desktop Steam client or the GNOME Keyring password.
+    """
+    wiped = 0
+    for path in (
+        steamcmd_steam_root() / "config",
+        steamcmd_dir() / "config",
+        steamcmd_home() / ".steam",
+        steamcmd_home() / "Steam",
+    ):
+        if not path.exists():
+            continue
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+            wiped += 1
+        except OSError as exc:
+            log.warning("reset session could not remove %s: %s", path, exc)
+    try:
+        for p in steamcmd_home().rglob("ssfn*"):
+            try:
+                p.unlink()
+                wiped += 1
+            except OSError:
+                pass
+    except OSError:
+        pass
+    if wiped:
+        return f"Cleared SteamCMD session ({wiped} paths). Link Steam again."
+    return "No SteamCMD session files found — try Link Steam again."
 
 
 @contextmanager
@@ -524,23 +587,28 @@ def _login_ok(output: str, returncode: int) -> bool:
     lower = output.lower()
     if _login_failure(output) is not None:
         return False
+    # Be strict — bare "ok" appears in too many non-login lines
     return (
         "logged in ok" in lower
-        or "logged in" in lower
-        or "waiting for user" in lower
-        or "ok" in lower
-        or (returncode == 0 and "failed" not in lower and "login failure" not in lower)
+        or ("logging in user" in lower and "ok" in lower)
+        or "waiting for user info" in lower
+        or (returncode == 0 and "logging in" in lower and "failed" not in lower)
     )
 
 
 def _login_failure(output: str) -> SteamCmdResult | None:
     """Return a failure result if the SteamCMD log indicates login problems."""
     lower = output.lower()
-    if "rate limit" in lower or "too many logon" in lower or "try again later" in lower:
+    if (
+        "rate limit" in lower
+        or "too many logon" in lower
+        or "try again later" in lower
+        or "limit exceeded" in lower
+    ):
         return SteamCmdResult(
             False,
-            "Steam is rate-limiting logins (often from signing in on two apps/PCs at once). "
-            "Wait a few minutes, use only one GnomePaper at a time, then try again.",
+            "Steam is rate-limiting logins. Wait 5–15 minutes, use only one "
+            "GnomePaper window, then Link again.",
             rate_limited=True,
             log_tail=output[-600:],
         )
@@ -550,11 +618,13 @@ def _login_failure(output: str) -> SteamCmdResult | None:
         or "guard code" in lower
         or "mobile authenticator" in lower
         or "account logon denied" in lower
+        or "invalid login auth code" in lower
+        or "invalid auth code" in lower
         or ("enter" in lower and "code" in lower and ("guard" in lower or "email" in lower))
     ):
         return SteamCmdResult(
             False,
-            "Steam Guard: open your authenticator app and enter the code, then try again.",
+            "Steam Guard code needed — open your Steam Mobile app and enter the code.",
             needs_guard=True,
             log_tail=output[-600:],
         )
@@ -565,18 +635,17 @@ def _login_failure(output: str) -> SteamCmdResult | None:
     ):
         return SteamCmdResult(
             False,
-            "No saved Steam session on this PC — signing in with your linked password…",
+            "No saved Steam session on this PC yet.",
             needs_password=True,
             log_tail=output[-400:],
         )
     if "invalid password" in lower:
         return SteamCmdResult(
             False,
-            "Steam login failed — wrong password. Re-link (top-left) with the correct one.",
+            "Wrong Steam password. Check CAPS LOCK and try again.",
             needs_password=True,
             log_tail=output[-600:],
         )
-    # Concurrent sessions / kicked by another login
     if (
         "logged in elsewhere" in lower
         or "another computer" in lower
@@ -585,16 +654,26 @@ def _login_failure(output: str) -> SteamCmdResult | None:
     ):
         return SteamCmdResult(
             False,
-            "Steam signed you out because another GnomePaper or Steam client logged in. "
-            "Close the other instance, wait ~30s, then Link Steam once on this PC.",
+            "Steam signed this session out (another PC/app logged in). "
+            "Close other GnomePaper windows, wait 30s, then Link once here.",
             needs_password=True,
             log_tail=output[-600:],
         )
-    if "login failure" in lower or "failed to log" in lower:
+    if "login failure" in lower or "failed to log" in lower or "failed with result code" in lower:
+        # SteamTools / injectors often surface as generic login failure
+        hint = ""
+        try:
+            from gnomepaper_engine.workshop.steam_account import steam_injector_warning
+
+            w = steam_injector_warning()
+            if w:
+                hint = " " + w
+        except Exception:
+            pass
         return SteamCmdResult(
             False,
-            "Steam login failed. If two GnomePaper windows/PCs are open, close one. "
-            "Then re-link (top-left) if needed.",
+            "Steam login failed." + hint
+            + " Tip: use stock Steam (disable SteamTools/Lua Tools), then Link again.",
             needs_password=True,
             log_tail=output[-600:],
         )
@@ -607,6 +686,24 @@ def _login_failure(output: str) -> SteamCmdResult | None:
     return None
 
 
+def _login_args(username: str, password: str = "", guard_code: str = "") -> list[str]:
+    """
+    Build SteamCMD +login arguments.
+
+    SteamCMD accepts: login <user> [<password>] [<steam guard code>]
+    Putting the Guard code as the third login argument is more reliable than
+    +set_steam_guard_code alone on modern SteamCMD builds.
+    """
+    user = username.strip()
+    pw = password or ""
+    code = guard_code.strip()
+    if pw and code:
+        return ["+login", user, pw, code]
+    if pw:
+        return ["+login", user, pw]
+    return ["+login", user]
+
+
 def link_steam_account(
     *,
     username: str,
@@ -616,12 +713,11 @@ def link_steam_account(
     store_password: bool = True,
 ) -> SteamCmdResult:
     """
-    Log into SteamCMD and keep credentials available for future downloads.
+    Log into isolated SteamCMD and keep credentials for Workshop downloads.
 
-    - SteamCMD keeps a local session under its data directory (per machine).
-    - Password is stored in the **GNOME Keyring** so sessions can renew without
-      re-prompting — without re-sending the password on every download when a
-      cached SteamCMD token still works (avoids Guard / multi-session fights).
+    - Session tokens live only under GnomePaper's steamcmd home (not desktop Steam).
+    - Password is stored in the **GNOME Keyring** for silent renew on this PC.
+    - Prefer linking once; downloads then use the cached session first.
     """
     username = username.strip()
     if not username or not password:
@@ -630,6 +726,16 @@ def link_steam_account(
             "Steam username and password are required to link.",
             needs_password=True,
         )
+
+    # Warn early about injectors (non-fatal)
+    try:
+        from gnomepaper_engine.workshop.steam_account import steam_injector_warning
+
+        warn = steam_injector_warning()
+        if warn and progress:
+            progress(warn)
+    except Exception:
+        pass
 
     try:
         cmd_bin = ensure_steamcmd()
@@ -641,7 +747,7 @@ def link_steam_account(
 
     log_path = AppConfig.cache_dir() / "steamcmd_link.log"
     if progress:
-        progress("Linking Steam account via SteamCMD…")
+        progress("Linking Steam (isolated SteamCMD session)…")
 
     args: list[str] = [
         str(cmd_bin),
@@ -649,10 +755,9 @@ def link_steam_account(
         "1",
         "+@NoPromptForPassword",
         "1",
+        *(_login_args(username, password, guard_code)),
+        "+quit",
     ]
-    if guard_code.strip():
-        args += ["+set_steam_guard_code", guard_code.strip()]
-    args += ["+login", username, password, "+quit"]
 
     try:
         with _steamcmd_lock():
@@ -669,9 +774,10 @@ def link_steam_account(
     if not _login_ok(output, _code):
         return SteamCmdResult(
             False,
-            "Could not confirm Steam login. Check credentials / Steam Guard. "
-            "If another GnomePaper is open, close it first.",
+            "Could not confirm Steam login. Check password / Steam Guard. "
+            "If SteamTools or Lua Tools is installed, disable it first.",
             needs_password=True,
+            needs_guard="guard" in output.lower() or "auth code" in output.lower(),
             log_tail=output[-600:],
         )
 
@@ -679,12 +785,11 @@ def link_steam_account(
     if store_password:
         stored = store_steam_password(username, password)
 
-    msg = f"Linked Steam account “{username}” on this PC."
+    msg = f"Linked “{username}” on this PC."
     if stored:
-        msg += " Password saved in GNOME Keyring; session reused for downloads."
+        msg += " Password saved in GNOME Keyring — downloads reuse this session."
     else:
-        msg += " (Keyring unavailable — you may be asked to re-link occasionally.)"
-    msg += " Tip: only one GnomePaper should use SteamCMD at a time."
+        msg += " (Keyring unavailable — you may need to re-enter the password later.)"
 
     return SteamCmdResult(True, msg, linked=True, log_tail=output[-400:])
 
@@ -766,12 +871,12 @@ def download_via_steamcmd(
     except Exception as exc:
         return SteamCmdResult(False, f"Could not install SteamCMD: {exc}")
 
-    # Download into isolated tree under steamcmd home (stable credentials path)
-    dl_root = steamcmd_dir() / "home" / ".local" / "share" / "Steam"
+    # Always use the isolated Steam root (never desktop ~/.local/share/Steam)
+    dl_root = steamcmd_steam_root()
     dl_root.mkdir(parents=True, exist_ok=True)
     log_path = AppConfig.cache_dir() / "steamcmd_last.log"
 
-    def _attempt(login_args: list[str], label: str) -> tuple[int, str]:
+    def _attempt(login_parts: list[str], label: str) -> tuple[int, str]:
         if progress:
             progress(label)
         args: list[str] = [
@@ -782,11 +887,7 @@ def download_via_steamcmd(
             "1",
             "+force_install_dir",
             str(dl_root),
-        ]
-        if guard_code.strip():
-            args += ["+set_steam_guard_code", guard_code.strip()]
-        args += login_args
-        args += [
+            *login_parts,
             "+workshop_download_item",
             _APP_ID,
             str(item_id),
@@ -837,9 +938,9 @@ def download_via_steamcmd(
         with _steamcmd_lock():
             # 1) Prefer cached SteamCMD session — avoids re-sending the password
             #    (password login is what re-triggers Guard and kicks other sessions).
-            if use_cached_login:
+            if use_cached_login and not guard_code.strip():
                 _code, output = _attempt(
-                    ["+login", username],
+                    _login_args(username),
                     "Using saved Steam session…",
                 )
                 fail = _login_failure(output)
@@ -847,8 +948,6 @@ def download_via_steamcmd(
                     result = _finish(output)
                     if result.ok:
                         return result
-                    # Login seemed fine but files missing — still return that error
-                    # only if the log claims a successful download.
                     if "downloaded item" in output.lower() and "success" in output.lower():
                         return result
                 else:
@@ -857,21 +956,19 @@ def download_via_steamcmd(
                     if fail.needs_guard and not password:
                         return fail
                     if fail.needs_guard and not guard_code.strip():
-                        # Need a Guard code before a password re-auth will work
                         return fail
-                    # needs_password / expired cache → fall through to keyring password
+                    # needs_password / expired cache → keyring password below
 
-            # 2) Password login (keyring or dialog) — creates/refreshes this PC's session
             if not password:
                 return SteamCmdResult(
                     False,
                     "No saved Steam password on this PC. Click Link Steam (top-left) once — "
-                    "we store it in your GNOME Keyring. Each computer needs its own one-time link.",
+                    "password is saved in GNOME Keyring. Each computer needs its own one-time link.",
                     needs_password=True,
                 )
 
             _code, output = _attempt(
-                ["+login", username, password],
+                _login_args(username, password, guard_code),
                 "Signing in to Steam…",
             )
             fail = _login_failure(output)

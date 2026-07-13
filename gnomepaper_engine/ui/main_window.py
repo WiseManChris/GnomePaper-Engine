@@ -1062,15 +1062,22 @@ class MainWindow(Adw.ApplicationWindow):
         threading.Thread(target=worker, name="ws-install", daemon=True).start()
 
     def _steam_login_form(
-        self, *, include_password: bool = True
-    ) -> tuple[Gtk.Box, Gtk.Entry, Gtk.PasswordEntry | None, Gtk.Entry]:
+        self,
+        *,
+        include_password: bool = True,
+        include_guard: bool = False,
+        prefill_user: str = "",
+    ) -> tuple[Gtk.Box, Gtk.Entry, Gtk.PasswordEntry | None, Gtk.Entry | None]:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_top(8)
 
         user_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         user_row.append(Gtk.Label(label="Username", xalign=0, width_chars=12))
-        user_entry = Gtk.Entry(text=self._steam_username, hexpand=True)
-        user_entry.set_placeholder_text("Steam username")
+        user_entry = Gtk.Entry(
+            text=prefill_user or self._steam_username,
+            hexpand=True,
+        )
+        user_entry.set_placeholder_text("Steam account name (not display name)")
         user_row.append(user_entry)
         box.append(user_row)
 
@@ -1082,16 +1089,24 @@ class MainWindow(Adw.ApplicationWindow):
             pass_row.append(pass_entry)
             box.append(pass_row)
 
-        guard_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        guard_row.append(Gtk.Label(label="Guard code", xalign=0, width_chars=12))
-        guard_entry = Gtk.Entry(hexpand=True, placeholder_text="If Steam Guard asks")
-        guard_row.append(guard_entry)
-        box.append(guard_row)
+        guard_entry: Gtk.Entry | None = None
+        if include_guard:
+            guard_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            guard_row.append(Gtk.Label(label="Guard code", xalign=0, width_chars=12))
+            guard_entry = Gtk.Entry(
+                hexpand=True,
+                placeholder_text="5-digit code from Steam Mobile",
+            )
+            guard_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+            guard_row.append(guard_entry)
+            box.append(guard_row)
 
         note = Gtk.Label(
             label=(
-                "Password is never stored by GnomePaper — SteamCMD keeps a local "
-                "login session. Desktop Steam may disconnect briefly."
+                "Password is saved only in your GNOME Keyring. "
+                "GnomePaper uses an isolated SteamCMD session — it does not "
+                "share login tokens with the desktop Steam client. "
+                "Disable SteamTools / Lua Tools if login keeps failing."
             ),
             wrap=True,
             xalign=0,
@@ -1102,28 +1117,64 @@ class MainWindow(Adw.ApplicationWindow):
         return box, user_entry, pass_entry, guard_entry
 
     def _prompt_link_steam(self) -> None:
-        """One-time link so downloads use cached SteamCMD login."""
-        dialog = Adw.AlertDialog(
-            heading="Link Steam account",
-            body=(
-                "Sign in once with the account that owns Wallpaper Engine. "
-                "After this, Workshop downloads won’t ask for a password each time."
-            ),
+        """Simple one-time link: auto-detect Steam username, password, optional Guard."""
+        from gnomepaper_engine.workshop.keyring import lookup_steam_password
+        from gnomepaper_engine.workshop.steam_account import (
+            detect_desktop_steam_account,
+            steam_injector_warning,
         )
+
+        desktop = detect_desktop_steam_account()
+        prefill = self._steam_username
+        persona_hint = ""
+        if desktop is not None:
+            prefill = prefill or desktop.account_name
+            if desktop.persona_name and desktop.persona_name != desktop.account_name:
+                persona_hint = f" (Steam is signed in as “{desktop.persona_name}”)"
+            if not self._steam_id64 and desktop.steam_id64:
+                self._steam_id64 = desktop.steam_id64
+
+        injector = steam_injector_warning()
+        body = (
+            f"Sign in once with the account that owns Wallpaper Engine{persona_hint}.\n"
+            "Username is pre-filled from desktop Steam when possible — "
+            "you usually only need your password."
+        )
+        if injector:
+            body += f"\n\n⚠ {injector}"
+
+        dialog = Adw.AlertDialog(heading="Link Steam", body=body)
         dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reset", "Reset session")
         dialog.add_response("link", "Link")
         dialog.set_response_appearance("link", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("link")
         dialog.set_close_response("cancel")
-        box, user_entry, pass_entry, guard_entry = self._steam_login_form()
+
+        box, user_entry, pass_entry, _guard = self._steam_login_form(
+            include_password=True,
+            include_guard=False,
+            prefill_user=prefill,
+        )
+        # Hint if keyring already has a password for this user
+        if pass_entry is not None and prefill and lookup_steam_password(prefill):
+            pass_entry.set_placeholder_text("Saved in keyring — re-enter to refresh")
         dialog.set_extra_child(box)
 
         def on_response(_dlg: Adw.AlertDialog, response: str) -> None:
+            if response == "reset":
+                from gnomepaper_engine.workshop.client import reset_steamcmd_session
+
+                msg = reset_steamcmd_session()
+                self.show_message(msg)
+                # Open a fresh link dialog after reset
+                GLib.idle_add(self._prompt_link_steam)
+                return
             if response != "link" or pass_entry is None:
                 return
             username = user_entry.get_text().strip()
             password = pass_entry.get_text()
-            guard = guard_entry.get_text().strip()
             if username and username != self._steam_username:
                 self._steam_username = username
                 if self._on_steam_username_changed:
@@ -1131,15 +1182,68 @@ class MainWindow(Adw.ApplicationWindow):
             if not username or not password:
                 self.show_message("Username and password required to link.", error=True)
                 return
-            self.show_message("Linking Steam account…")
+            # Keep password for a possible Guard follow-up (memory only)
+            self._pending_link_user = username
+            self._pending_link_pass = password
+            self.show_message("Linking Steam…")
 
             def worker() -> None:
                 result = link_steam_account(
-                    username=username, password=password, guard_code=guard
+                    username=username, password=password, guard_code=""
                 )
-                GLib.idle_add(self._on_link_finished, result, bool(guard))
+                GLib.idle_add(self._on_link_finished, result)
 
             threading.Thread(target=worker, name="steam-link", daemon=True).start()
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
+
+    def _prompt_steam_guard_only(self) -> None:
+        """Second step: only the Guard code, using password kept in memory."""
+        user = getattr(self, "_pending_link_user", "") or self._steam_username
+        password = getattr(self, "_pending_link_pass", "") or ""
+        if not user or not password:
+            self._prompt_link_steam()
+            return
+
+        dialog = Adw.AlertDialog(
+            heading="Steam Guard",
+            body=(
+                f"Steam needs a one-time code for “{user}”.\n"
+                "Open Steam Mobile (or email) and enter the code below."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("link", "Continue")
+        dialog.set_response_appearance("link", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("link")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(8)
+        guard_entry = Gtk.Entry(
+            placeholder_text="5-digit Steam Guard code",
+            hexpand=True,
+        )
+        guard_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        box.append(guard_entry)
+        dialog.set_extra_child(box)
+
+        def on_response(_d: Adw.AlertDialog, response: str) -> None:
+            if response != "link":
+                return
+            code = guard_entry.get_text().strip()
+            if not code:
+                self.show_message("Enter the Steam Guard code.", error=True)
+                return
+            self.show_message("Confirming Steam Guard…")
+
+            def worker() -> None:
+                result = link_steam_account(
+                    username=user, password=password, guard_code=code
+                )
+                GLib.idle_add(self._on_link_finished, result)
+
+            threading.Thread(target=worker, name="steam-guard", daemon=True).start()
 
         dialog.connect("response", on_response)
         dialog.present(self)
@@ -1150,6 +1254,7 @@ class MainWindow(Adw.ApplicationWindow):
         assert isinstance(result, SteamCmdResult)
         if result.ok or result.linked:
             self._set_steam_linked(True)
+            self._pending_link_pass = ""
             # Force fresh profile (avatar + display name) after every successful link
             self._steam_persona = ""
             self._steam_avatar_path = ""
@@ -1158,14 +1263,14 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             # Keep previous linked state unless auth is clearly invalid —
             # rate limits / concurrent SteamCMD must not wipe a good link.
-            if result.needs_password and not result.rate_limited:
+            if result.needs_password and not result.rate_limited and not result.needs_guard:
                 self._set_steam_linked(False)
             self.show_message(result.message, error=True)
-            # Re-prompt only for Guard (once) — not an infinite password loop
-            if result.needs_guard and not had_guard:
-                self._prompt_link_steam()
+            # Guard-only follow-up — do not re-open full password form
+            if result.needs_guard:
+                self._prompt_steam_guard_only()
             elif getattr(result, "rate_limited", False):
-                pass  # user must wait; do not pop another dialog
+                pass  # user must wait
         return GLib.SOURCE_REMOVE
 
     def _prompt_steamcmd_download(
@@ -1227,7 +1332,10 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("download")
         dialog.set_close_response("cancel")
-        box, user_entry, pass_entry, guard_entry = self._steam_login_form()
+        box, user_entry, pass_entry, guard_entry = self._steam_login_form(
+            include_password=True,
+            include_guard=True,
+        )
         if saved and pass_entry is not None:
             pass_entry.set_placeholder_text("Saved in keyring — leave blank to reuse")
         dialog.set_extra_child(box)
@@ -1237,7 +1345,7 @@ class MainWindow(Adw.ApplicationWindow):
                 return
             username = user_entry.get_text().strip()
             password = pass_entry.get_text() or (saved or "")
-            guard = guard_entry.get_text().strip()
+            guard = guard_entry.get_text().strip() if guard_entry is not None else ""
             if username and username != self._steam_username:
                 self._steam_username = username
                 if self._on_steam_username_changed:

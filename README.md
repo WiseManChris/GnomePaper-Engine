@@ -270,9 +270,14 @@ Then **Re-detect**.
 
 ### Steam link (Workshop downloads)
 - Link **once per PC** (top-left chip); password lives in **GNOME Keyring**  
+- Username is **auto-detected** from the desktop Steam client when possible  
+- SteamCMD runs in an **isolated home** — it does not share tokens with desktop Steam  
 - Downloads prefer a **cached SteamCMD session**, then the keyring password (avoids Guard spam)  
-- **Only one GnomePaper** should run SteamCMD at a time — concurrent windows/PCs fighting the same account caused endless re-login prompts  
-- A file lock serializes SteamCMD so two local windows cannot corrupt the session 
+- **Reset session** in the Link dialog if login gets stuck  
+- **Only one GnomePaper** should run SteamCMD at a time  
+- **SteamTools / Lua Tools** (and similar injectors) often break SteamCMD auth — use stock Steam to Link  
+
+Also fix the typo PressURE if any...
 
 ### Steam, linked like a native app
 - **Link Steam** chip in the **top-left** of the window  

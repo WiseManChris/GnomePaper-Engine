@@ -289,7 +289,7 @@ def _login_with_access_token(client, account_name: str, access_token: str):
     from steam.enums import EOSType, EResult
     from steam.enums.emsg import EMsg
     from steam.steamid import SteamID
-    from steam.utils.web import ip4_to_int
+    import ipaddress
 
     eresult = client._pre_login()
     if eresult != EResult.OK:
@@ -307,7 +307,7 @@ def _login_with_access_token(client, account_name: str, access_token: str):
     message.body.chat_mode = client.chat_mode
     try:
         message.body.obfuscated_private_ip.v4 = (
-            ip4_to_int(client.connection.local_address) ^ 0xF00DBAAD
+            int(ipaddress.IPv4Address(client.connection.local_address)) ^ 0xF00DBAAD
         )
     except Exception:
         pass

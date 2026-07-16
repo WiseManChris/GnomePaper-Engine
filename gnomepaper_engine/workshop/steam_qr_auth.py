@@ -103,7 +103,7 @@ def begin_qr_session(device_name: str = "GnomePaper Engine") -> QRSession:
         "device_details": {
             "device_friendly_name": device_name,
             "platform_type": 2,  # SteamClient
-            "os_type": 20,  # Linux-ish
+            "os_type": 16,  # Windows 10 (Matches EOSType.Windows10 in steam_worker.py)
         }
     }
     resp = requests.post(

@@ -104,7 +104,8 @@ def begin_qr_session(device_name: str = "GnomePaper Engine") -> QRSession:
             "device_friendly_name": device_name,
             "platform_type": 2,  # SteamClient
             "os_type": 16,  # Windows 10 (Matches EOSType.Windows10 in steam_worker.py)
-        }
+        },
+        "website_id": "Client",
     }
     resp = requests.post(
         _BEGIN_QR,

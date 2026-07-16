@@ -1562,12 +1562,20 @@ class MainWindow(Adw.ApplicationWindow):
             def on_guard(_d: Adw.AlertDialog, response: str) -> None:
                 if response != "download":
                     return
-                self._run_steamcmd_download(
-                    item,
-                    self._steam_username,
-                    saved or "",
-                    guard_entry.get_text().strip(),
-                )
+                if self._prefer_steamcmd:
+                    self._run_steamcmd_download(
+                        item,
+                        self._steam_username,
+                        saved or "",
+                        guard_entry.get_text().strip(),
+                    )
+                else:
+                    self._run_native_download(
+                        item,
+                        self._steam_username,
+                        saved or "",
+                        guard_entry.get_text().strip(),
+                    )
 
             dialog.connect("response", on_guard)
             dialog.present(self)
@@ -1611,7 +1619,10 @@ class MainWindow(Adw.ApplicationWindow):
                     error=True,
                 )
                 return
-            self._run_steamcmd_download(item, username, password, guard)
+            if self._prefer_steamcmd:
+                self._run_steamcmd_download(item, username, password, guard)
+            else:
+                self._run_native_download(item, username, password, guard)
 
         dialog.connect("response", on_response)
         dialog.present(self)

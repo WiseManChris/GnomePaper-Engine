@@ -300,7 +300,7 @@ def _login_with_access_token(client, account_name: str, access_token: str):
     message.header.steamid = SteamID(type="Individual", universe="Public")
     message.body.protocol_version = 65580
     message.body.client_package_version = 1561159470
-    message.body.client_os_type = EOSType.LinuxUnknown
+    message.body.client_os_type = EOSType.Windows10
     message.body.client_language = "english"
     message.body.should_remember_password = True
     message.body.supports_rate_limit_response = True

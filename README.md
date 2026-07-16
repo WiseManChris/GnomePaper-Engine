@@ -2,7 +2,7 @@
 
 ### Live wallpapers on GNOME. Your Steam library. Your desktop. Finally.
 
-**Version 1.1.5** · by [WiseManChris](https://github.com/WiseManChris)
+**Version 1.1.6** · by [WiseManChris](https://github.com/WiseManChris)
 
 If you have ever stared at a beautiful Wallpaper Engine scene on Windows and thought *“why can’t GNOME feel like this?”* — this is the project for you.
 
@@ -12,7 +12,7 @@ GnomePaper Engine brings your **Steam Wallpaper Engine** library to **any GNOME-
 > No cracks. No ownership bypass. If you bought it, you’re welcome here.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version 1.1.5](https://img.shields.io/badge/version-1.1.5-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
+[![Version 1.1.6](https://img.shields.io/badge/version-1.1.6-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
 [![GNOME](https://img.shields.io/badge/GNOME-any-purple.svg)](https://www.gnome.org/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
@@ -331,6 +331,9 @@ Then **Re-detect** in Settings if the status still says not found.
 ---
 
 ## Changelog
+
+### 1.1.6
+- **Hotfix: Steam Workshop Download Crash 2**: Fixed a "value out of range" crash during Steam logon by switching the reported client OS type to Windows 10, preventing a negative integer assignment from crashing the updated Protobuf schema.
 
 ### 1.1.5
 - **Hotfix: Steam Workshop Download Crash**: Replaced a missing `ip4_to_int` import from the upstream `steam` package with the standard library `ipaddress` to fix crashes during workshop downloads.

@@ -216,6 +216,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         page.add(dl)
 
+        self._steam_client_row = Adw.SwitchRow(
+            title="Download via Steam Client (Subscribe)",
+            subtitle="Fastest way: opens the Steam client and subscribes. No passwords or setup required.",
+            active=self._config.prefer_steam_client,
+        )
+        self._steam_client_row.connect("notify::active", self._on_steam_client)
+        dl.add(self._steam_client_row)
+
         self._steamcmd_row = Adw.SwitchRow(
             title="Use SteamCMD instead",
             subtitle="Legacy fallback — usually worse than seamless Download",
@@ -378,6 +386,10 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_steamcmd(self, row: Adw.SwitchRow, *_a: object) -> None:
         self._config.prefer_steamcmd_download = row.get_active()
+        self._persist()
+
+    def _on_steam_client(self, row: Adw.SwitchRow, *_a: object) -> None:
+        self._config.prefer_steam_client = row.get_active()
         self._persist()
 
     def _on_lwe_path(self, row: Adw.EntryRow) -> None:

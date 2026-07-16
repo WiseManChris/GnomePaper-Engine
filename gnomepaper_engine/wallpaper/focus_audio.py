@@ -136,43 +136,118 @@ class FocusAudioGuard:
 
 
 def _wallpaper_obscured(wallpaper_pids: list[int]) -> bool:
-    """True when any real application window is in front of the wallpaper."""
-    # 1) AT-SPI focused app (Wayland-native)
-    focused = _atspi_all_focused_apps()
-    for app in focused:
-        if _is_keep_audio_app(app):
-            continue
-        # Any other focused/active app ⇒ mute
-        return True
+    """Disabled: always returns False to avoid unreliable focus muting."""
+    return False
 
-    # If AT-SPI found only keep-apps (shell / gnomepaper), allow audio
-    if focused:
+
+def _atspi_active_window_obscured() -> bool:
+    """True if the currently active/focused window (not a keep-audio app) is maximized or fullscreen."""
+    global _atspi_ready
+    try:
+        import gi
+        gi.require_version("Atspi", "2.0")
+        from gi.repository import Atspi
+
+        if _atspi_ready is not True:
+            try:
+                Atspi.init()
+            except Exception:
+                pass
+            _atspi_ready = True
+
+        desktop = Atspi.get_desktop(0)
+        if desktop is None:
+            return False
+
+        for i in range(desktop.get_child_count()):
+            app = desktop.get_child_at_index(i)
+            if app is None:
+                continue
+            app_name = app.get_name() or ""
+            if _is_keep_audio_app(app_name):
+                continue
+
+            try:
+                n = app.get_child_count()
+            except Exception:
+                continue
+            for j in range(n):
+                try:
+                    ch = app.get_child_at_index(j)
+                except Exception:
+                    continue
+                if ch is None:
+                    continue
+                try:
+                    st = ch.get_state_set()
+                    if st is None:
+                        continue
+                    # Check if this window is active or focused
+                    if st.contains(Atspi.StateType.ACTIVE) or st.contains(Atspi.StateType.FOCUSED):
+                        # It is the active window! Check if it is maximized or fullscreen
+                        if st.contains(Atspi.StateType.MAXIMIZED) or st.contains(Atspi.StateType.FULLSCREEN):
+                            log.debug("Active window %s (%s) is maximized/fullscreen", ch.get_name(), app_name)
+                            return True
+                        # Found the active window but it's not maximized/fullscreen -> do not mute
+                        return False
+                except Exception:
+                    continue
+    except Exception as exc:
+        log.debug("AT-SPI active window check failed: %s", exc)
+        _atspi_ready = False
+    return False
+
+
+def _x11_active_window_obscured(wallpaper_pids: list[int]) -> bool:
+    """True if the active X11 window is maximized or fullscreen and not a keep-audio app."""
+    if not shutil.which("xprop"):
+        return False
+    try:
+        out = subprocess.check_output(
+            ["xprop", "-root", "_NET_ACTIVE_WINDOW"],
+            text=True,
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    m = re.search(r"window id # (0x[0-9a-fA-F]+)", out)
+    if not m:
+        return False
+    xid = m.group(1)
+    if xid in ("0x0", "0x00"):
         return False
 
-    # 2) X11 active window (XWayland clients)
-    active = _x11_active_window_info()
-    if active is not None:
-        pid, wm_class, title = active
-        if pid is not None and wallpaper_pids and pid in wallpaper_pids:
-            # Wallpaper itself focused — treat as not a real app in front
-            # (focus should be released elsewhere); keep audio
-            return False
-        blob = f"{wm_class or ''} {title or ''}".lower()
-        if _is_keep_audio_app(blob):
-            return False
-        if blob.strip():
-            return True
+    try:
+        props = subprocess.check_output(
+            ["xprop", "-id", xid, "_NET_WM_PID", "WM_CLASS", "_NET_WM_STATE"],
+            text=True,
+            errors="replace",
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
 
-    # 3) Any non-wallpaper X11 window that looks normal/mapped (extra net)
-    if _x11_other_window_present(wallpaper_pids):
-        # Only mute via this path if something has X11 focus that's not us
-        # — already handled above. Don't mute just because windows exist
-        # (user may want audio with windows open if they're not focused).
-        # User asked for mute when window is "in front" = focused.
-        pass
+    pid: int | None = None
+    wm_class = ""
+    is_max_or_fs = False
+    for line in props.splitlines():
+        if "_NET_WM_PID" in line and "=" in line:
+            m2 = re.search(r"=\s*(\d+)", line)
+            if m2:
+                pid = int(m2.group(1))
+        elif "WM_CLASS" in line and "=" in line:
+            wm_class = line.split("=", 1)[1].strip()
+        elif "_NET_WM_STATE" in line and "=" in line:
+            if "MAXIMIZED" in line or "FULLSCREEN" in line:
+                is_max_or_fs = True
 
-    # Unknown / empty desktop → allow audio
-    return False
+    if pid is not None and wallpaper_pids and pid in wallpaper_pids:
+        return False
+
+    if _is_keep_audio_app(wm_class):
+        return False
+
+    return is_max_or_fs
+
 
 
 def _describe_focus() -> str:

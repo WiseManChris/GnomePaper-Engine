@@ -55,14 +55,6 @@ def set_wallpaper_volume(
         want_mute = "1" if (muted or vol == 0) else "0"
         if not _run(["pactl", "set-sink-input-mute", str(sid), want_mute]):
             ok = False
-        # PipeWire path: also try wpctl on the same numeric id when available
-        if shutil.which("wpctl"):
-            frac = 0.0 if (muted or vol == 0) else (vol / 100.0)
-            _run(["wpctl", "set-volume", str(sid), f"{frac:.3f}"])
-            if muted or vol == 0:
-                _run(["wpctl", "set-mute", str(sid), "1"])
-            else:
-                _run(["wpctl", "set-mute", str(sid), "0"])
         if ok:
             updated += 1
 

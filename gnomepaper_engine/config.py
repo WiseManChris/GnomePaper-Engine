@@ -48,6 +48,9 @@ class AppConfig:
     # unreliable with SteamTools / non-stock Steam; Subscribe-via-Steam is the
     # robust path for most users.
     prefer_steamcmd_download: bool = False
+    # True if user prefers opening the Steam client and subscribing there,
+    # avoiding all QR codes/passwords/token refreshing.
+    prefer_steam_client: bool = False
     # Desktop session (v1.0)
     close_to_background: bool = True
     start_minimized: bool = False

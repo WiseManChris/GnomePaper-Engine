@@ -2,7 +2,7 @@
 
 ### Live wallpapers on GNOME. Your Steam library. Your desktop. Finally.
 
-**Version 1.1.3** · by [WiseManChris](https://github.com/WiseManChris)
+**Version 1.1.4** · by [WiseManChris](https://github.com/WiseManChris)
 
 If you have ever stared at a beautiful Wallpaper Engine scene on Windows and thought *“why can’t GNOME feel like this?”* — this is the project for you.
 
@@ -12,7 +12,7 @@ GnomePaper Engine brings your **Steam Wallpaper Engine** library to **any GNOME-
 > No cracks. No ownership bypass. If you bought it, you’re welcome here.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version 1.1.3](https://img.shields.io/badge/version-1.1.3-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
+[![Version 1.1.4](https://img.shields.io/badge/version-1.1.4-brightgreen.svg)](https://github.com/WiseManChris/GnomePaper-Engine/releases)
 [![GNOME](https://img.shields.io/badge/GNOME-any-purple.svg)](https://www.gnome.org/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
@@ -331,6 +331,12 @@ Then **Re-detect** in Settings if the status still says not found.
 ---
 
 ## Changelog
+
+### 1.1.4
+- **Streamlined Steam Downloads**: Added a setting and prompt to allow downloading wallpapers via the local Steam client's subscription mechanism. No passwords or QR linking required.
+- **Online QR Code Fallback**: Added a fallback to render authentication QR codes using a public API if local generator dependencies are missing.
+- **Fixed System-wide Muting**: Resolved a PipeWire conflict bug that muted the whole computer's physical outputs.
+- **Postponed Auto-focus Muting**: Disabled unreliable automatic window-focus muting due to composite desk inconsistencies on Wayland. We recommend muting wallpapers manually using the app volume controller or setting it to 0.
 
 ### 1.1.3
 - **Settings → Scene engine**: status, **Re-detect**, and **Install scene engine**  

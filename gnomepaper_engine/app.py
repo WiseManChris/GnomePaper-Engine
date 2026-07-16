@@ -69,6 +69,7 @@ class GnomePaperApplication(Adw.Application):
                 steam_id64=self.config.steam_id64,
                 steam_avatar_path=self.config.steam_avatar_path,
                 prefer_steamcmd_download=self.config.prefer_steamcmd_download,
+                prefer_steam_client=self.config.prefer_steam_client,
                 we_owned=wallpaper_engine_owned(self.config.steam_library_paths),
                 on_mute_changed=self._on_mute_changed,
                 on_volume_changed=self._on_volume_changed,
@@ -78,6 +79,7 @@ class GnomePaperApplication(Adw.Application):
                 on_steam_linked_changed=self._on_steam_linked_changed,
                 on_steam_profile_changed=self._on_steam_profile_changed,
                 on_prefer_steamcmd_changed=self._on_prefer_steamcmd_changed,
+                on_prefer_steam_client_changed=self._on_prefer_steam_client_changed,
             )
             self.window.connect("close-request", self._on_close)
 
@@ -176,6 +178,9 @@ class GnomePaperApplication(Adw.Application):
         # Re-sync manager config; recreate tray if background toggled on
         self.manager.config = self.config
         apply_theme(theme=self.config.ui_theme, accent=self.config.accent_color)
+        if self.window is not None:
+            self.window.set_prefer_steamcmd(self.config.prefer_steamcmd_download)
+            self.window.set_prefer_steam_client(self.config.prefer_steam_client)
         if self.config.close_to_background and self._tray is None:
             self._setup_tray()
         if self._tray is not None:
@@ -349,6 +354,10 @@ class GnomePaperApplication(Adw.Application):
 
     def _on_prefer_steamcmd_changed(self, prefer: bool) -> None:
         self.config.prefer_steamcmd_download = prefer
+        self.config.save()
+
+    def _on_prefer_steam_client_changed(self, prefer: bool) -> None:
+        self.config.prefer_steam_client = prefer
         self.config.save()
 
     def _check_ownership(self) -> bool:

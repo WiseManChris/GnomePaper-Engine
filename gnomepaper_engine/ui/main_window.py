@@ -63,6 +63,7 @@ class MainWindow(Adw.ApplicationWindow):
         steam_id64: str = "",
         steam_avatar_path: str = "",
         prefer_steamcmd_download: bool = True,
+        prefer_steam_client: bool = False,
         we_owned: bool = True,
         on_mute_changed: Callable[[bool], None] | None = None,
         on_volume_changed: Callable[[int], None] | None = None,
@@ -72,6 +73,7 @@ class MainWindow(Adw.ApplicationWindow):
         on_steam_linked_changed: Callable[[bool], None] | None = None,
         on_steam_profile_changed: Callable[[str, str, str], None] | None = None,
         on_prefer_steamcmd_changed: Callable[[bool], None] | None = None,
+        on_prefer_steam_client_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__(
             application=application,
@@ -91,6 +93,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._on_steam_linked_changed = on_steam_linked_changed
         self._on_steam_profile_changed = on_steam_profile_changed
         self._on_prefer_steamcmd_changed = on_prefer_steamcmd_changed
+        self._on_prefer_steam_client_changed = on_prefer_steam_client_changed
 
         self._mute_audio = mute_audio
         self._audio_volume = audio_volume
@@ -102,6 +105,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._steam_id64 = steam_id64
         self._steam_avatar_path = steam_avatar_path
         self._prefer_steamcmd = prefer_steamcmd_download
+        self._prefer_steam_client = prefer_steam_client
         self._we_owned = we_owned
 
         self._items: list[WallpaperItem] = []
@@ -558,14 +562,25 @@ class MainWindow(Adw.ApplicationWindow):
         prefs.append(self._section_label("Workshop"))
         steam_group = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         steam_group.add_css_class("boxed-list")
-        steam_group.append(
-            self._switch_row(
-                "Use SteamCMD fallback",
-                "Only if seamless Download fails — SteamCMD is flaky with injectors",
-                self._prefer_steamcmd,
-                self._on_prefer_steamcmd_switch,
-            )
+
+        client_row = self._switch_row(
+            "Download via Steam Client",
+            "Opens Steam to subscribe. No password or QR setup needed.",
+            self._prefer_steam_client,
+            self._on_prefer_steam_client_switch,
         )
+        self._steam_client_switch_widget = client_row.get_activatable_widget()
+        steam_group.append(client_row)
+
+        cmd_row = self._switch_row(
+            "Use SteamCMD fallback",
+            "Only if seamless Download fails — SteamCMD is flaky with injectors",
+            self._prefer_steamcmd,
+            self._on_prefer_steamcmd_switch,
+        )
+        self._prefer_steamcmd_switch_widget = cmd_row.get_activatable_widget()
+        steam_group.append(cmd_row)
+
         prefs.append(steam_group)
 
         we_note = Gtk.Label(
@@ -1020,6 +1035,11 @@ class MainWindow(Adw.ApplicationWindow):
             self.show_message(f"Already installed: {item.title}")
             return
 
+        # Check if user prefers Steam client subscription
+        if self._prefer_steam_client:
+            self._start_subscribe_watch(item)
+            return
+
         # Seamless native Steam download (login key). Optional SteamCMD if enabled.
         if self._prefer_steamcmd:
             if self._steam_linked and self._steam_username:
@@ -1036,7 +1056,7 @@ class MainWindow(Adw.ApplicationWindow):
             )
             return
 
-        # Not linked yet — QR link, then download
+        # Not linked yet — show a dialog asking how they want to download
         self._prompt_link_steam_for_download(item)
 
     def _has_native_session(self, username: str) -> bool:
@@ -1058,9 +1078,30 @@ class MainWindow(Adw.ApplicationWindow):
             return False
 
     def _prompt_link_steam_for_download(self, item: WorkshopItem) -> None:
-        """Link once, then immediately download the selected item."""
-        self._pending_download_item = item
-        self._prompt_link_steam()
+        """Prompt user to choose between subscribing via local Steam client or linking their account."""
+        dialog = Adw.AlertDialog(
+            heading="Download Wallpaper",
+            body=(
+                f"How would you like to download “{item.title}”?\n\n"
+                "• Subscribe in Steam: Opens the Steam client. Zero passwords or configuration needed.\n"
+                "• Link Steam Account: Authenticate GnomePaper via QR code to download directly inside the app."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("steam", "Subscribe in Steam (Recommended)")
+        dialog.add_response("link", "Link Account")
+        dialog.set_response_appearance("steam", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("cancel")
+
+        def on_response(_dlg: Adw.AlertDialog, response: str) -> None:
+            if response == "steam":
+                GLib.idle_add(self._start_subscribe_watch, item)
+            elif response == "link":
+                self._pending_download_item = item
+                GLib.idle_add(self._prompt_link_steam)
+
+        dialog.connect("response", on_response)
+        dialog.present(self)
 
     def _on_ws_subscribe_fallback(self, *_args: object) -> None:
         item = self._ws_selected
@@ -1259,7 +1300,16 @@ class MainWindow(Adw.ApplicationWindow):
                 return
 
             try:
-                png = challenge_url_to_png_bytes(session.challenge_url)
+                try:
+                    png = challenge_url_to_png_bytes(session.challenge_url)
+                except Exception as local_exc:
+                    log.warning("Local QR code generation failed, trying online fallback: %s", local_exc)
+                    from gnomepaper_engine.workshop.steam_qr_auth import challenge_url_public_image
+                    import requests
+                    url = challenge_url_public_image(session.challenge_url)
+                    resp = requests.get(url, timeout=10)
+                    resp.raise_for_status()
+                    png = resp.content
 
                 def show_qr() -> bool:
                     try:
@@ -1283,7 +1333,7 @@ class MainWindow(Adw.ApplicationWindow):
             except Exception as exc:
                 GLib.idle_add(
                     status.set_label,
-                    f"Install qrcode package or open:\n{session.challenge_url}\n({exc})",
+                    f"Scan this QR link or open:\n{session.challenge_url}\n({exc})",
                 )
 
             result = wait_for_qr_approval(
@@ -1705,3 +1755,22 @@ class MainWindow(Adw.ApplicationWindow):
         self._prefer_steamcmd = switch.get_active()
         if self._on_prefer_steamcmd_changed is not None:
             self._on_prefer_steamcmd_changed(self._prefer_steamcmd)
+
+    def _on_prefer_steam_client_switch(self, switch: Gtk.Switch, *_args: object) -> None:
+        self._prefer_steam_client = switch.get_active()
+        if self._on_prefer_steam_client_changed is not None:
+            self._on_prefer_steam_client_changed(self._prefer_steam_client)
+
+    def set_prefer_steamcmd(self, prefer: bool) -> None:
+        self._prefer_steamcmd = prefer
+        if hasattr(self, "_prefer_steamcmd_switch_widget") and self._prefer_steamcmd_switch_widget is not None:
+            self._prefer_steamcmd_switch_widget.handler_block_by_func(self._on_prefer_steamcmd_switch)
+            self._prefer_steamcmd_switch_widget.set_active(prefer)
+            self._prefer_steamcmd_switch_widget.handler_unblock_by_func(self._on_prefer_steamcmd_switch)
+
+    def set_prefer_steam_client(self, prefer: bool) -> None:
+        self._prefer_steam_client = prefer
+        if hasattr(self, "_steam_client_switch_widget") and self._steam_client_switch_widget is not None:
+            self._steam_client_switch_widget.handler_block_by_func(self._on_prefer_steam_client_switch)
+            self._steam_client_switch_widget.set_active(prefer)
+            self._steam_client_switch_widget.handler_unblock_by_func(self._on_prefer_steam_client_switch)
